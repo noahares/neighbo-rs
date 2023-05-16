@@ -1,0 +1,21 @@
+[package]
+name = "neighbo-rs"
+version = "0.1.0"
+authors = ["Noah Wahl <noah.ares@yahoo.de>"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = { version = "1.0.70", features = ["backtrace"] }
+clap = { version = "4.2.4", features = ["derive"] }
+clap-verbosity-flag = "2.0.1"
+env_logger = "0.10.0"
+exitcode = "1.1.2"
+itertools = "0.10.5"
+log = "0.4.17"
+ndarray = "0.15.6"
+ordered-float = "3.7.0"
+rand = "0.8.5"
+rand_chacha = "0.3.1"
+rand_distr = "0.4.3"
