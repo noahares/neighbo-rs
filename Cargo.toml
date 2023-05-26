@@ -12,7 +12,7 @@ clap = { version = "4.2.4", features = ["derive"] }
 clap-verbosity-flag = "2.0.1"
 env_logger = "0.10.0"
 exitcode = "1.1.2"
-itertools = "0.10.5"
+itertools = { version = "0.10.5", features = ['use_alloc'] }
 log = "0.4.17"
 ndarray = "0.15.6"
 ordered-float = "3.7.0"
