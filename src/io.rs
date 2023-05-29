@@ -1,7 +1,7 @@
 use crate::nj::RandomizationStrategy;
-use clap::Parser;
 use anyhow::{anyhow, Context, Result};
-use std::{path::PathBuf, io::Write};
+use clap::Parser;
+use std::{io::Write, path::PathBuf};
 
 fn normalized_ratio(s: &str) -> Result<f64> {
     let ratio: f64 = s

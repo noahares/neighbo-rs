@@ -1,8 +1,8 @@
-use core::{str::FromStr, fmt};
-use std::path::Path;
 use anyhow::Result;
+use core::{fmt, str::FromStr};
 use itertools::Itertools;
 use rand_distr::num_traits::ToPrimitive;
+use std::path::Path;
 
 #[derive(Clone)]
 pub struct DistanceMatrix {
@@ -25,13 +25,17 @@ impl DistanceMatrix {
     }
 
     pub fn get(&self, i: usize, j: usize) -> f64 {
-        if i == j { 0.0 }
-        else { self.distances[Self::index_from_row_and_col(i, j, self.num_taxa())] }
+        if i == j {
+            0.0
+        } else {
+            self.distances[Self::index_from_row_and_col(i, j, self.num_taxa())]
+        }
     }
 
     pub fn set(&mut self, i: usize, j: usize, v: f64) {
         assert_ne!(i, j);
-        self.distances[Self::index_from_row_and_col(i, j, self.labels.len())] = v;
+        self.distances
+            [Self::index_from_row_and_col(i, j, self.labels.len())] = v;
     }
     pub fn from_file(p: &Path) -> Result<Self> {
         std::fs::read_to_string(p)?.parse()
@@ -113,7 +117,11 @@ impl PhyloTree {
         Self::new(name, vec![])
     }
 
-    pub fn join(name: &str, (l, d_l): (Self, f64), (r, d_r): (Self, f64)) -> Self {
+    pub fn join(
+        name: &str,
+        (l, d_l): (Self, f64),
+        (r, d_r): (Self, f64),
+    ) -> Self {
         Self::new(name, vec![(l, Some(d_l)), (r, Some(d_r))])
     }
 
