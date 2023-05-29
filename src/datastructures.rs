@@ -15,9 +15,9 @@ impl DistanceMatrix {
         Self { labels, distances }
     }
 
-    fn index_from_row_and_col(i: usize, j: usize) -> usize {
+    fn index_from_row_and_col(i: usize, j: usize, n: usize) -> usize {
         let (i, j) = (i.min(j), i.max(j));
-        (i * (i + 1) / 2) + j - i
+        (i * n) - (i * (i + 3) / 2) + (j - 1)
     }
 
     pub fn labels(&self) -> std::slice::Iter<String> {
@@ -25,11 +25,13 @@ impl DistanceMatrix {
     }
 
     pub fn get(&self, i: usize, j: usize) -> f64 {
-        self.distances[Self::index_from_row_and_col(i, j)]
+        if i == j { 0.0 }
+        else { self.distances[Self::index_from_row_and_col(i, j, self.num_taxa())] }
     }
 
     pub fn set(&mut self, i: usize, j: usize, v: f64) {
-        self.distances[Self::index_from_row_and_col(i, j)] = v;
+        assert_ne!(i, j);
+        self.distances[Self::index_from_row_and_col(i, j, self.labels.len())] = v;
     }
     pub fn from_file(p: &Path) -> Result<Self> {
         std::fs::read_to_string(p)?.parse()
@@ -142,5 +144,26 @@ impl PhyloTree {
 impl fmt::Display for PhyloTree {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{};", Self::to_string_impl(self))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use super::DistanceMatrix;
+
+    #[test]
+    fn test_upper_triangle_distance_matrix() {
+        let raw_matrix = r"4
+                           0.0 1.0 2.0 3.0
+                           1.0 0.0 1.0 2.0
+                           2.0 1.0 0.0 1.0
+                           3.0 2.0 1.0 0.0";
+        let matrix = DistanceMatrix::from_str(raw_matrix).unwrap();
+        assert_eq!(matrix.distances, &[1.0, 2.0, 3.0, 1.0, 2.0, 1.0]);
+        assert_eq!(matrix.get(1, 3), 2.0);
+        assert_eq!(matrix.get(3, 0), 3.0);
+        assert_eq!(matrix.get(2, 3), 1.0);
     }
 }

@@ -121,7 +121,6 @@ pub fn nj(
             }
         };
         assert!(i < j);
-        // let (i, j) = (i.min(j), i.max(j));
         let d_i = distance_matrix.get(i, j) / 2.
             + (sum_d(i) - sum_d(j)) / (2. * (active.len() - 2) as f64);
         let d_j = distance_matrix.get(i, j) - d_i;
@@ -132,7 +131,6 @@ pub fn nj(
                 - distance_matrix.get(i, j))
                 / 2.;
             distance_matrix.set(i, k, d_k);
-            // distance_matrix.set(k, i, d_k);
         });
 
         trees[i] = Some(PhyloTree::join(
