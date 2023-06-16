@@ -10,7 +10,7 @@ fn normalized_ratio(s: &str) -> Result<f64> {
     if (0.0..=1.0).contains(&ratio) {
         Ok(ratio)
     } else {
-        Err(anyhow!(format!("Ratio is not in range {}-{}", 0.0, 0.1)))
+        Err(anyhow!(format!("Ratio is not in range {}-{}", 0.0, 1.0)))
     }
 }
 

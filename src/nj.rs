@@ -151,3 +151,27 @@ pub fn nj(
     }
     Ok(trees[0].take().unwrap())
 }
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use crate::datastructures::DistanceMatrix;
+
+    use super::nj;
+
+    #[test]
+    fn test_nj_step() {
+        let raw_matrix = r"4
+                           taxon0 0.0 17.0 21.0 27.0
+                           taxon1 17.0 0.0 12.0 18.0
+                           taxon2 21.0 12.0 0.0 14.0
+                           taxon3 27.0 18.0 14.0 0.0";
+        let matrix = DistanceMatrix::from_str(raw_matrix).unwrap();
+        let result =
+            nj(matrix, super::RandomizationStrategy::Deterministic, 0, 0.0)
+                .unwrap();
+        println!("{}", result);
+        assert_eq!(0, 1);
+    }
+}

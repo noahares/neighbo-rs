@@ -91,7 +91,7 @@ impl FromStr for DistanceMatrix {
             d.labels.push(it.next().unwrap().to_string());
             d.distances.extend(
                 it.enumerate()
-                    .filter(|(j, _)| i <= *j)
+                    .filter(|(j, _)| i < *j)
                     .map(|(_, chars)| chars.parse::<f64>().unwrap()),
             );
         }
@@ -159,19 +159,38 @@ impl fmt::Display for PhyloTree {
 mod tests {
     use std::str::FromStr;
 
+    use rand::SeedableRng;
+    use rand_chacha::ChaCha8Rng;
+
     use super::DistanceMatrix;
 
     #[test]
     fn test_upper_triangle_distance_matrix() {
         let raw_matrix = r"4
-                           0.0 1.0 2.0 3.0
-                           1.0 0.0 1.0 2.0
-                           2.0 1.0 0.0 1.0
-                           3.0 2.0 1.0 0.0";
+                           taxon0 0.0 1.0 2.0 3.0
+                           taxon1 1.0 0.0 1.0 2.0
+                           taxon2 2.0 1.0 0.0 1.0
+                           taxon3 3.0 2.0 1.0 0.0";
         let matrix = DistanceMatrix::from_str(raw_matrix).unwrap();
         assert_eq!(matrix.distances, &[1.0, 2.0, 3.0, 1.0, 2.0, 1.0]);
+        assert_eq!(matrix.get(0, 1), 1.0);
         assert_eq!(matrix.get(1, 3), 2.0);
         assert_eq!(matrix.get(3, 0), 3.0);
         assert_eq!(matrix.get(2, 3), 1.0);
+    }
+
+    #[test]
+    fn test_no_perturbation() {
+        let raw_matrix = r"4
+                           taxon0 0.0 1.0 2.0 3.0
+                           taxon1 1.0 0.0 1.0 2.0
+                           taxon2 2.0 1.0 0.0 1.0
+                           taxon3 3.0 2.0 1.0 0.0";
+        let matrix = DistanceMatrix::from_str(raw_matrix).unwrap();
+        let mut matrix_2 = matrix.clone();
+        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let distribution = rand_distr::Normal::new(1.0, 0.0).unwrap();
+        matrix_2.perturb(&mut rng, &distribution, 1.0);
+        assert_eq!(matrix.distances, matrix_2.distances);
     }
 }
