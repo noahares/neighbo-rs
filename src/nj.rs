@@ -34,8 +34,8 @@ pub fn min_from_sample(
     rng: &mut impl rand::Rng,
     percentile: f64,
 ) -> Option<(usize, usize)> {
-    let num_samples =
-        (active_index_weight_pairs.len() as f64 * percentile) as usize;
+    let num_samples = (active_index_weight_pairs.len() as f64 * percentile)
+        .max(1.0) as usize;
     let samples = rand::seq::index::sample(
         rng,
         active_index_weight_pairs.len(),
