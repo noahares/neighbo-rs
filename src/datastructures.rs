@@ -80,7 +80,7 @@ impl FromStr for DistanceMatrix {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self> {
-        let mut lines = s.lines();
+        let mut lines = s.lines().filter(|&line| !line.is_empty());
         let n = lines.next().expect("Expected n").parse()?;
 
         let mut d =
