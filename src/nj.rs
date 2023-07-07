@@ -1,74 +1,84 @@
 use anyhow::Result;
+use itertools::Itertools;
 use ordered_float::NotNan;
-use rand::SeedableRng;
+use rand::{seq::IteratorRandom, seq::SliceRandom, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 
 use crate::datastructures::{DistanceMatrix, PhyloTree};
 
-pub fn weighted_min_pos(
-    active_index_weight_pairs: Vec<((usize, usize), f64)>,
+pub fn weighted_min_pos<F>(
+    active: &[usize],
+    q: F,
     rng: &mut impl rand::Rng,
-) -> Option<(usize, usize)> {
-    // because q matrix values are nagative, their absolute value can be used as a weight to prefer
-    // small values
-    let cumulative_weights: Vec<((usize, usize), f64)> =
-        active_index_weight_pairs
-            .iter()
-            .scan(((0, 0), 0.0), |(_, acc), &w| {
-                *acc += w.1.abs();
-                Some((w.0, *acc))
-            })
-            .collect();
-    assert!(cumulative_weights.iter().all(|v| v.1 > 0.0));
-    let sum_of_weights: f64 = cumulative_weights.last().copied().unwrap().1;
-    let selection_threshold = rng.gen_range(0.0..=sum_of_weights);
-    cumulative_weights
+) -> (usize, usize)
+where
+    F: Fn(&(&usize, &usize)) -> NotNan<f64>,
+{
+    let active_indices = active
         .iter()
-        .find(|&cw| cw.1 >= selection_threshold)
-        .copied()
-        .map(|selected_pos| selected_pos.0)
+        .cartesian_product(active.iter())
+        .filter(|&(&i, &j)| i < j)
+        .collect_vec();
+    let (&i, &j) =
+        active_indices.choose_weighted(rng, |p| q(p).abs()).unwrap();
+    (i, j)
 }
 
-pub fn min_from_sample(
-    active_index_weight_pairs: Vec<((usize, usize), f64)>,
+pub fn min_from_sample<F>(
+    active: &[usize],
+    q: F,
     rng: &mut impl rand::Rng,
     percentile: f64,
-) -> Option<(usize, usize)> {
-    let num_samples = (active_index_weight_pairs.len() as f64 * percentile)
-        .max(1.0) as usize;
-    let samples = rand::seq::index::sample(
-        rng,
-        active_index_weight_pairs.len(),
-        num_samples,
-    );
-    samples
+) -> (usize, usize)
+where
+    F: Fn(&(&usize, &usize)) -> NotNan<f64>,
+{
+    let num_entries = (active.len() * active.len() - 1) / 2;
+    let num_samples = (num_entries as f64 * percentile).max(1.0) as usize;
+    let (&i, &j) = active
         .iter()
-        .min_by_key(|v| NotNan::new(active_index_weight_pairs[*v].1).unwrap())
-        .map(|selected_index| active_index_weight_pairs[selected_index].0)
+        .cartesian_product(active.iter())
+        .filter(|&(&i, &j)| i < j)
+        .choose_multiple(rng, num_samples)
+        .into_iter()
+        .min_by_key(q)
+        .unwrap();
+    (i, j)
 }
 
-pub fn random_min_by_threshold(
-    active_index_weight_pairs: Vec<((usize, usize), f64)>,
+pub fn random_min_by_threshold<F>(
+    active: &[usize],
+    q: F,
     rng: &mut impl rand::Rng,
     percentile: f64,
-) -> Option<(usize, usize)> {
-    let mut active_index_weight_pairs_cloned: Vec<((usize, usize), f64)> =
-        active_index_weight_pairs.to_owned();
-    let threshold =
-        (active_index_weight_pairs.len() as f64 * percentile) as usize;
-    active_index_weight_pairs_cloned
-        .select_nth_unstable_by_key(threshold, |v| NotNan::new(v.1).unwrap());
+) -> (usize, usize)
+where
+    F: Fn(&(&usize, &usize)) -> NotNan<f64>,
+{
+    let num_entries = (active.len() * active.len() - 1) / 2;
+    let threshold = (num_entries as f64 * percentile) as usize;
+    let mut active_indices = active
+        .iter()
+        .cartesian_product(active.iter())
+        .filter(|&(&i, &j)| i < j)
+        .collect_vec();
+    active_indices.select_nth_unstable_by_key(threshold, q);
     let selected_index = rng.gen_range(0..=threshold);
-    Some(active_index_weight_pairs_cloned[selected_index].0)
+    let (&i, &j) = active_indices[selected_index];
+    (i, j)
 }
 
-pub fn deterministic_min(
-    active_index_weight_pairs: Vec<((usize, usize), f64)>,
-) -> Option<(usize, usize)> {
-    active_index_weight_pairs
+pub fn deterministic_min<F>(active: &[usize], q: F) -> (usize, usize)
+where
+    F: Fn(&(&usize, &usize)) -> NotNan<f64>,
+{
+    let (&i, &j) = active
         .iter()
-        .min_by_key(|&(_, v)| NotNan::new(*v).unwrap())
-        .map(|min| min.0)
+        .cartesian_product(active.iter())
+        .filter(|&(&i, &j)| i < j)
+        .min_by_key(q)
+        .unwrap();
+    (i, j)
 }
 
 #[derive(Copy, Clone, clap::ValueEnum)]
@@ -92,37 +102,40 @@ pub fn nj(
         .map(|name| Some(PhyloTree::new_leaf(name)))
         .collect();
     while active.len() > 2 {
-        let sum_d = |i: usize| -> f64 {
-            active.iter().map(|&k| distance_matrix.get(i, k)).sum()
+        let sum_d: std::collections::HashMap<usize, f64> = active
+            .iter()
+            .map(|i: &usize| -> (usize, f64) {
+                (*i, active.iter().map(|&k| distance_matrix.get(*i, k)).sum())
+            })
+            .collect();
+
+        let q = |&(&i, &j): &(&usize, &usize)| -> NotNan<f64> {
+            NotNan::new(
+                (active.len() - 2) as f64 * distance_matrix.get(i, j)
+                    - sum_d.get(&i).unwrap()
+                    - sum_d.get(&j).unwrap(),
+            )
+            .unwrap()
         };
         let mut rng = ChaCha8Rng::seed_from_u64(seed);
-        let active_index_weight_pairs =
-            distance_matrix.q_values_with_active_indices(&active);
         let (i, j) = match strategy {
             RandomizationStrategy::WeightedSelection => {
-                weighted_min_pos(active_index_weight_pairs, &mut rng).unwrap()
+                weighted_min_pos(&active, q, &mut rng)
             }
             RandomizationStrategy::ThresholdBasedRandomization => {
-                random_min_by_threshold(
-                    active_index_weight_pairs,
-                    &mut rng,
-                    percentile,
-                )
-                .unwrap()
+                random_min_by_threshold(&active, q, &mut rng, percentile)
             }
-            RandomizationStrategy::RandomSampling => min_from_sample(
-                active_index_weight_pairs,
-                &mut rng,
-                percentile,
-            )
-            .unwrap(),
+            RandomizationStrategy::RandomSampling => {
+                min_from_sample(&active, q, &mut rng, percentile)
+            }
             RandomizationStrategy::Deterministic => {
-                deterministic_min(active_index_weight_pairs).unwrap()
+                deterministic_min(&active, q)
             }
         };
         assert!(i < j);
         let d_i = distance_matrix.get(i, j) / 2.
-            + (sum_d(i) - sum_d(j)) / (2. * (active.len() - 2) as f64);
+            + (sum_d.get(&i).unwrap() - sum_d.get(&j).unwrap())
+                / (2. * (active.len() - 2) as f64);
         let d_j = distance_matrix.get(i, j) - d_i;
 
         active.remove(active.iter().position(|&x| x == j).unwrap());
@@ -171,7 +184,10 @@ mod tests {
         let result =
             nj(matrix, super::RandomizationStrategy::Deterministic, 0, 0.0)
                 .unwrap();
-        println!("{}", result);
-        assert_eq!(0, 1);
+        // println!("{}", result);
+        assert_eq!(
+            result.to_string(),
+            "(((taxon0:13,taxon1:4):4,taxon2:4):5,taxon3:5);"
+        );
     }
 }

@@ -1,7 +1,5 @@
 use anyhow::Result;
 use core::{fmt, str::FromStr};
-use itertools::Itertools;
-use rand_distr::num_traits::ToPrimitive;
 use std::path::Path;
 
 #[derive(Clone)]
@@ -56,23 +54,6 @@ impl DistanceMatrix {
                 *i *= distribution.sample(rng).abs()
             }
         });
-    }
-
-    pub fn q_values_with_active_indices(
-        &self,
-        active: &Vec<usize>,
-    ) -> Vec<((usize, usize), f64)> {
-        let sum_d =
-            |i: usize| -> f64 { active.iter().map(|&k| self.get(i, k)).sum() };
-        let q = |(i, j): (usize, usize)| -> f64 {
-            (active.len() - 2) as f64 * self.get(i, j) - sum_d(i) - sum_d(j)
-        };
-        active
-            .iter()
-            .cartesian_product(active.iter())
-            .filter(|&(&i, &j)| i < j)
-            .map(|(&i, &j)| ((i, j), q((i, j)).to_f64().unwrap()))
-            .collect()
     }
 }
 
