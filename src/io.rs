@@ -24,7 +24,7 @@ pub struct Args {
     #[arg(short = 't', long, default_value_t = 1)]
     pub num_trees: usize,
     /// stddev of noise as a multiplicative factor
-    #[arg(short, long, default_value_t = 0.01, value_parser = normalized_ratio)]
+    #[arg(short, long, default_value_t = 0.2, value_parser = normalized_ratio)]
     pub noise: f64,
     /// ratio of matrix entries that get perturbed in each iteration
     #[arg(short = 'r', long, default_value_t = 1.0, value_parser = normalized_ratio)]
