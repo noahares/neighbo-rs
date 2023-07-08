@@ -68,6 +68,7 @@ where
     (i, j)
 }
 
+#[inline]
 pub fn deterministic_min<F>(active: &[usize], q: F) -> (usize, usize)
 where
     F: Fn(&(&usize, &usize)) -> NotNan<f64>,
@@ -102,18 +103,24 @@ pub fn nj(
         .map(|name| Some(PhyloTree::new_leaf(name)))
         .collect();
     while active.len() > 2 {
-        let sum_d: std::collections::HashMap<usize, f64> = active
-            .iter()
-            .map(|i: &usize| -> (usize, f64) {
-                (*i, active.iter().map(|&k| distance_matrix.get(*i, k)).sum())
-            })
-            .collect();
+        let sum_d = {
+            let mut sum_d = vec![0.0; n];
+            active.iter().for_each(|i: &usize| {
+                sum_d[*i] = active
+                    .iter()
+                    .filter(|&&k| k != *i)
+                    .map(|&k| distance_matrix.get(*i, k))
+                    .sum()
+            });
+            sum_d
+        };
 
         let q = |&(&i, &j): &(&usize, &usize)| -> NotNan<f64> {
+            assert!(i < j);
             NotNan::new(
-                (active.len() - 2) as f64 * distance_matrix.get(i, j)
-                    - sum_d.get(&i).unwrap()
-                    - sum_d.get(&j).unwrap(),
+                (active.len() - 2) as f64 * distance_matrix.get_lt(i, j)
+                    - sum_d[i]
+                    - sum_d[j],
             )
             .unwrap()
         };
@@ -133,17 +140,13 @@ pub fn nj(
             }
         };
         assert!(i < j);
-        let d_i = distance_matrix.get(i, j) / 2.
-            + (sum_d.get(&i).unwrap() - sum_d.get(&j).unwrap())
-                / (2. * (active.len() - 2) as f64);
-        let d_j = distance_matrix.get(i, j) - d_i;
+        let d_i = distance_matrix.get_lt(i, j) / 2.
+            + (sum_d[i] - sum_d[j]) / (2. * (active.len() - 2) as f64);
+        let d_j = distance_matrix.get_lt(i, j) - d_i;
 
         active.remove(active.iter().position(|&x| x == j).unwrap());
         active.iter().filter(|&&k| k != i).for_each(|&k| {
-            let d_k = (distance_matrix.get(i, k) + distance_matrix.get(j, k)
-                - distance_matrix.get(i, j))
-                / 2.;
-            distance_matrix.set(i, k, d_k);
+            distance_matrix.update(i, j, k);
         });
 
         trees[i] = Some(PhyloTree::join(
@@ -155,7 +158,7 @@ pub fn nj(
 
     // finalize remaining 2 nodes
     if let [i, j] = active[..] {
-        let d = distance_matrix.get(i, j) / 2.;
+        let d = distance_matrix.get_lt(i, j) / 2.;
         trees[i] = Some(PhyloTree::join(
             "",
             (trees[i].take().unwrap(), d),

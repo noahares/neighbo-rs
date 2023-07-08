@@ -13,8 +13,15 @@ impl DistanceMatrix {
         Self { labels, distances }
     }
 
+    #[inline(always)]
     fn index_from_row_and_col(i: usize, j: usize, n: usize) -> usize {
         let (i, j) = (i.min(j), i.max(j));
+        (i * n) - (i * (i + 3) / 2) + (j - 1)
+    }
+
+    // optimised version if i < j is guaranteed
+    #[inline(always)]
+    fn index_from_row_and_col_lt(i: usize, j: usize, n: usize) -> usize {
         (i * n) - (i * (i + 3) / 2) + (j - 1)
     }
 
@@ -22,14 +29,19 @@ impl DistanceMatrix {
         self.labels.iter()
     }
 
+    #[inline(always)]
     pub fn get(&self, i: usize, j: usize) -> f64 {
-        if i == j {
-            0.0
-        } else {
-            self.distances[Self::index_from_row_and_col(i, j, self.num_taxa())]
-        }
+        assert_ne!(i, j);
+        self.distances[Self::index_from_row_and_col(i, j, self.num_taxa())]
     }
 
+    // optimised version if i < j is guaranteed
+    #[inline(always)]
+    pub fn get_lt(&self, i: usize, j: usize) -> f64 {
+        self.distances[Self::index_from_row_and_col_lt(i, j, self.num_taxa())]
+    }
+
+    #[inline(always)]
     pub fn set(&mut self, i: usize, j: usize, v: f64) {
         assert_ne!(i, j);
         self.distances
@@ -43,6 +55,7 @@ impl DistanceMatrix {
         self.labels.len()
     }
 
+    #[inline(always)]
     pub fn perturb(
         &mut self,
         rng: &mut impl rand::Rng,
@@ -54,6 +67,12 @@ impl DistanceMatrix {
                 *i *= distribution.sample(rng).abs()
             }
         });
+    }
+
+    #[inline(always)]
+    pub fn update(&mut self, i: usize, j: usize, k: usize) {
+        let d_k = (self.get(i, k) + self.get(j, k) - self.get_lt(i, j)) / 2.;
+        self.set(i, k, d_k);
     }
 }
 
