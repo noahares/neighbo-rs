@@ -1,8 +1,9 @@
 use anyhow::Result;
 use itertools::Itertools;
 use ordered_float::NotNan;
-use rand::{seq::IteratorRandom, seq::SliceRandom, SeedableRng};
-use rand_chacha::ChaCha8Rng;
+use rand::{seq::IteratorRandom, seq::SliceRandom};
+use rand_xoshiro::rand_core::SeedableRng;
+use rand_xoshiro::Xoshiro256PlusPlus;
 
 use crate::datastructures::{DistanceMatrix, PhyloTree};
 
@@ -116,7 +117,7 @@ pub fn nj(
         };
 
         let q = |&(&i, &j): &(&usize, &usize)| -> NotNan<f64> {
-            assert!(i < j);
+            debug_assert!(i < j);
             NotNan::new(
                 (active.len() - 2) as f64 * distance_matrix.get_lt(i, j)
                     - sum_d[i]
@@ -124,7 +125,7 @@ pub fn nj(
             )
             .unwrap()
         };
-        let mut rng = ChaCha8Rng::seed_from_u64(seed);
+        let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
         let (i, j) = match strategy {
             RandomizationStrategy::WeightedSelection => {
                 weighted_min_pos(&active, q, &mut rng)
@@ -139,7 +140,7 @@ pub fn nj(
                 deterministic_min(&active, q)
             }
         };
-        assert!(i < j);
+        debug_assert!(i < j);
         let d_i = distance_matrix.get_lt(i, j) / 2.
             + (sum_d[i] - sum_d[j]) / (2. * (active.len() - 2) as f64);
         let d_j = distance_matrix.get_lt(i, j) - d_i;

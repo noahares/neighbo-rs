@@ -17,8 +17,8 @@ log = "0.4.17"
 ndarray = "0.15.6"
 ordered-float = "3.7.0"
 rand = "0.8.5"
-rand_chacha = "0.3.1"
 rand_distr = "0.4.3"
+rand_xoshiro = "0.6.0"
 
 [profile.ultra]
 inherits = "release"

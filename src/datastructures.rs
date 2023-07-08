@@ -31,7 +31,7 @@ impl DistanceMatrix {
 
     #[inline(always)]
     pub fn get(&self, i: usize, j: usize) -> f64 {
-        assert_ne!(i, j);
+        debug_assert_ne!(i, j);
         self.distances[Self::index_from_row_and_col(i, j, self.num_taxa())]
     }
 
@@ -43,7 +43,7 @@ impl DistanceMatrix {
 
     #[inline(always)]
     pub fn set(&mut self, i: usize, j: usize, v: f64) {
-        assert_ne!(i, j);
+        debug_assert_ne!(i, j);
         self.distances
             [Self::index_from_row_and_col(i, j, self.labels.len())] = v;
     }

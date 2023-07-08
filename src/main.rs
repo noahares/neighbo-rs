@@ -3,8 +3,8 @@ use anyhow::Result;
 use clap::Parser;
 use itertools::Itertools;
 use log::warn;
-use rand::SeedableRng;
-use rand_chacha::ChaCha8Rng;
+use rand_xoshiro::rand_core::SeedableRng;
+use rand_xoshiro::Xoshiro256PlusPlus;
 
 mod datastructures;
 mod io;
@@ -17,7 +17,7 @@ fn main() -> Result<()> {
     }
     let distance_matrix =
         datastructures::DistanceMatrix::from_file(&args.sequence_file)?;
-    let mut rng = ChaCha8Rng::seed_from_u64(args.seed);
+    let mut rng = Xoshiro256PlusPlus::seed_from_u64(args.seed);
     let distribution = rand_distr::Normal::new(1.0, args.noise)?;
     let trees: Vec<datastructures::PhyloTree> = (0..args.num_trees)
         .map(|_| -> Result<datastructures::PhyloTree> {
