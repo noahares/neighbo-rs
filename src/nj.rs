@@ -194,4 +194,22 @@ mod tests {
             "(((taxon0:13,taxon1:4):4,taxon2:4):5,taxon3:5);"
         );
     }
+
+    #[test]
+    fn test_nj_step_2() {
+        let raw_matrix = r"4
+                           taxon0 0.0 5.0 9.0 9.0 8.0
+                           taxon1 5.0 0.0 10.0 10.0 9.0
+                           taxon2 9.0 10 0.0 8.0 7.0
+                           taxon3 9.0 10.0 8.0 0.0 3.0
+                           taxon4 8.0 9.0 7.0 3.0 0.0";
+        let matrix = DistanceMatrix::from_str(raw_matrix).unwrap();
+        let result =
+            nj(matrix, super::RandomizationStrategy::Deterministic, 0, 0.0)
+                .unwrap();
+        assert_eq!(
+            result.to_string(),
+            "((((taxon0:2,taxon1:3):3,taxon2:4):2,taxon3:2):0.5,taxon4:0.5);"
+        );
+    }
 }

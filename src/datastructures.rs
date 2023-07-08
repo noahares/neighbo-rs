@@ -159,8 +159,8 @@ impl fmt::Display for PhyloTree {
 mod tests {
     use std::str::FromStr;
 
-    use rand::SeedableRng;
-    use rand_chacha::ChaCha8Rng;
+    use rand_xoshiro::rand_core::SeedableRng;
+    use rand_xoshiro::Xoroshiro128PlusPlus;
 
     use super::DistanceMatrix;
 
@@ -188,7 +188,7 @@ mod tests {
                            taxon3 3.0 2.0 1.0 0.0";
         let matrix = DistanceMatrix::from_str(raw_matrix).unwrap();
         let mut matrix_2 = matrix.clone();
-        let mut rng = ChaCha8Rng::seed_from_u64(0);
+        let mut rng = Xoroshiro128PlusPlus::seed_from_u64(0);
         let distribution = rand_distr::Normal::new(1.0, 0.0).unwrap();
         matrix_2.perturb(&mut rng, &distribution, 1.0);
         assert_eq!(matrix.distances, matrix_2.distances);
