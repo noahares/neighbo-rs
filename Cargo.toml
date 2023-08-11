@@ -11,11 +11,13 @@ anyhow = { version = "1.0.70", features = ["backtrace"] }
 bitvec = "1.0.1"
 clap = { version = "4.2.4", features = ["derive"] }
 clap-verbosity-flag = "2.0.1"
+counter = "0.5.7"
 env_logger = "0.10.0"
 exitcode = "1.1.2"
 itertools = { version = "0.10.5", features = ['use_alloc'] }
 log = "0.4.17"
 ndarray = "0.15.6"
+ndarray-stats = "0.5.1"
 ordered-float = "3.7.0"
 rand = "0.8.5"
 rand_distr = "0.4.3"

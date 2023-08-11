@@ -8,6 +8,8 @@ pub struct NewickParser<'a, 'b> {
     tokenizer: Tokenizer<'a>,
     mapping: &'b HashMap<String, BitVec>,
     bipartitions: Vec<BitVec>,
+    central_trichotomy: bool,
+    num_taxa: usize,
 }
 
 impl<'a, 'b> NewickParser<'a, 'b> {
@@ -17,6 +19,8 @@ impl<'a, 'b> NewickParser<'a, 'b> {
             tokenizer,
             mapping,
             bipartitions: Vec::with_capacity(mapping.len()),
+            central_trichotomy: false,
+            num_taxa: mapping.len()
         }
     }
 
@@ -48,10 +52,13 @@ impl<'a, 'b> NewickParser<'a, 'b> {
 
     pub fn parse(&mut self) -> Vec<BitVec> {
         self.parse_tree();
-        debug_assert!(
-            (0..=1).contains(&(self.mapping.len() - self.bipartitions.len()))
-        );
-        self.bipartitions.clone()
+        if self.central_trichotomy {
+            debug_assert_eq!(self.num_taxa, self.bipartitions.len());
+            self.bipartitions.clone()
+        } else {
+            debug_assert_eq!(self.num_taxa - 1, self.bipartitions.len());
+            self.bipartitions[..self.bipartitions.len() - 1].to_vec()
+        }
     }
 
     fn parse_tree(&mut self) -> BitVec {
@@ -62,6 +69,7 @@ impl<'a, 'b> NewickParser<'a, 'b> {
                     self.tokenizer.expect_token(Token::Comma);
                     let right_child = self.parse_tree();
                     if self.tokenizer.next() == Some(Token::Comma) {
+                        self.central_trichotomy = true;
                         let third_child = self.parse_tree();
                         let extra_combined_bitset_1 =
                             left_child.clone().bitor(&third_child);
@@ -136,5 +144,60 @@ impl<'a> Iterator for Tokenizer<'a> {
         } else {
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bitvec::prelude::*;
+
+    use super::NewickParser;
+
+    #[test]
+    fn test_preprocessing() {
+        let input = String::from("((z,b:1.223)1,c:1223.332,d:132.323);");
+        let result = NewickParser::preprocess_input(input).unwrap();
+        assert_eq!(result, String::from("((z,b),c,d)"));
+    }
+
+    #[test]
+    fn test_simple_tree_trichotomy() {
+        let input = "((z,b),c,d)";
+        let mapping = NewickParser::get_taxa_mapping(input);
+        let result = NewickParser::new(input, &mapping).parse();
+        assert_eq!(result, vec![
+                   bitvec![1, 0, 0, 1],
+                   bitvec![1, 0, 1, 1],
+                   bitvec![0, 1, 1, 0],
+                   bitvec![1, 1, 0, 1],
+        ]);
+    }
+
+    #[test]
+    fn test_pure_trichotomy() {
+        let input = "(a,c,d)";
+        let mapping = NewickParser::get_taxa_mapping(input);
+        let result = NewickParser::new(input, &mapping).parse();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_only_two_taxa() {
+        let input = "(a,b)";
+        let mapping = NewickParser::get_taxa_mapping(input);
+        let result = NewickParser::new(input, &mapping).parse();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_simple_tree_binary() {
+        let input = "((z,b),((c,d), a))";
+        let mapping = NewickParser::get_taxa_mapping(input);
+        let result = NewickParser::new(input, &mapping).parse();
+        assert_eq!(result, vec![
+                   bitvec![0, 1, 0, 0, 1],
+                   bitvec![0, 0, 1, 1, 0],
+                   bitvec![1, 0, 1, 1, 0],
+        ]);
     }
 }
