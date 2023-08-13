@@ -2,13 +2,15 @@ use anyhow::Result;
 use bitvec::prelude::*;
 use itertools::Itertools;
 use regex::Regex;
-use std::{collections::HashMap, ops::BitOr};
+use std::{
+    collections::{HashMap, HashSet},
+    ops::BitOr,
+};
 
 pub struct NewickParser<'a, 'b> {
     tokenizer: Tokenizer<'a>,
     mapping: &'b HashMap<String, BitVec>,
-    bipartitions: Vec<BitVec>,
-    central_trichotomy: bool,
+    bipartitions: HashSet<BitVec>,
     num_taxa: usize,
 }
 
@@ -18,9 +20,8 @@ impl<'a, 'b> NewickParser<'a, 'b> {
         NewickParser {
             tokenizer,
             mapping,
-            bipartitions: Vec::with_capacity(mapping.len()),
-            central_trichotomy: false,
-            num_taxa: mapping.len()
+            bipartitions: HashSet::with_capacity(mapping.len()),
+            num_taxa: mapping.len(),
         }
     }
 
@@ -52,13 +53,20 @@ impl<'a, 'b> NewickParser<'a, 'b> {
 
     pub fn parse(&mut self) -> Vec<BitVec> {
         self.parse_tree();
-        if self.central_trichotomy {
-            debug_assert_eq!(self.num_taxa, self.bipartitions.len());
-            self.bipartitions.clone()
-        } else {
-            debug_assert_eq!(self.num_taxa - 1, self.bipartitions.len());
-            self.bipartitions[..self.bipartitions.len() - 1].to_vec()
-        }
+        debug_assert_eq!(
+            self.num_taxa - 3,
+            self.bipartitions
+                .clone()
+                .into_iter()
+                .filter(Self::is_inner_bipartition)
+                .count()
+        );
+        debug_assert!(self.bipartitions.iter().all(|b| b[0]));
+        self.bipartitions
+            .clone()
+            .into_iter()
+            .filter(Self::is_inner_bipartition)
+            .collect_vec()
     }
 
     fn parse_tree(&mut self) -> BitVec {
@@ -69,19 +77,22 @@ impl<'a, 'b> NewickParser<'a, 'b> {
                     self.tokenizer.expect_token(Token::Comma);
                     let right_child = self.parse_tree();
                     if self.tokenizer.next() == Some(Token::Comma) {
-                        self.central_trichotomy = true;
                         let third_child = self.parse_tree();
                         let extra_combined_bitset_1 =
                             left_child.clone().bitor(&third_child);
                         let extra_combined_bitset_2 =
                             right_child.clone().bitor(&third_child);
-                        self.bipartitions
-                            .push(extra_combined_bitset_1.clone());
-                        self.bipartitions
-                            .push(extra_combined_bitset_2.clone());
+                        self.insert_bipartition_normalized(
+                            extra_combined_bitset_1,
+                        );
+                        self.insert_bipartition_normalized(
+                            extra_combined_bitset_2,
+                        );
                     }
                     let combined_bitset = left_child.bitor(right_child);
-                    self.bipartitions.push(combined_bitset.clone());
+                    self.insert_bipartition_normalized(
+                        combined_bitset.clone(),
+                    );
                     combined_bitset
                 }
                 Token::Taxon(name) => {
@@ -95,6 +106,20 @@ impl<'a, 'b> NewickParser<'a, 'b> {
         } else {
             panic!("Unexpected end of string")
         }
+    }
+
+    fn insert_bipartition_normalized(&mut self, bipartition: BitVec) {
+        if bipartition[0] {
+            self.bipartitions.insert(bipartition);
+        } else {
+            self.bipartitions.insert(!bipartition);
+        }
+    }
+
+    fn is_inner_bipartition(bipartition: &BitVec) -> bool {
+        let n_ones = bipartition.count_ones();
+        let n_zeros = bipartition.count_zeros();
+        n_ones > 1 && n_zeros > 1
     }
 }
 
@@ -165,12 +190,7 @@ mod tests {
         let input = "((z,b),c,d)";
         let mapping = NewickParser::get_taxa_mapping(input);
         let result = NewickParser::new(input, &mapping).parse();
-        assert_eq!(result, vec![
-                   bitvec![1, 0, 0, 1],
-                   bitvec![1, 0, 1, 1],
-                   bitvec![0, 1, 1, 0],
-                   bitvec![1, 1, 0, 1],
-        ]);
+        assert_eq!(result, vec![bitvec![1, 0, 0, 1],]);
     }
 
     #[test]
@@ -182,8 +202,8 @@ mod tests {
     }
 
     #[test]
-    fn test_only_two_taxa() {
-        let input = "(a,b)";
+    fn test_minimal_binary() {
+        let input = "((a,b), c)";
         let mapping = NewickParser::get_taxa_mapping(input);
         let result = NewickParser::new(input, &mapping).parse();
         assert!(result.is_empty());
@@ -194,10 +214,8 @@ mod tests {
         let input = "((z,b),((c,d), a))";
         let mapping = NewickParser::get_taxa_mapping(input);
         let result = NewickParser::new(input, &mapping).parse();
-        assert_eq!(result, vec![
-                   bitvec![0, 1, 0, 0, 1],
-                   bitvec![0, 0, 1, 1, 0],
-                   bitvec![1, 0, 1, 1, 0],
-        ]);
+        assert!(vec![bitvec![1, 0, 1, 1, 0], bitvec![1, 1, 0, 0, 1],]
+            .iter()
+            .all(|b| result.contains(b)));
     }
 }
