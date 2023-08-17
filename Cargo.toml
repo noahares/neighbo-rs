@@ -8,6 +8,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = { version = "1.0.70", features = ["backtrace"] }
+assert_float_eq = "1"
 bitvec = "1.0.1"
 clap = { version = "4.2.4", features = ["derive"] }
 clap-verbosity-flag = "2.0.1"

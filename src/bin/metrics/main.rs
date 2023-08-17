@@ -1,19 +1,67 @@
 use anyhow::Result;
 use bitvec::vec::BitVec;
-use counter::Counter;
+use clap::Parser;
 use itertools::Itertools;
-use ndarray::{Array2, Axis};
-use ndarray_stats::CorrelationExt;
-use std::collections::HashSet;
-use std::env;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
+#[macro_use]
+extern crate assert_float_eq;
+
+mod io;
+mod metrics;
 mod parser;
 
 fn main() -> Result<()> {
-    let args: Vec<String> = env::args().collect();
-    let file_paths = &args[1..=2];
+    let args = io::Args::parse();
+    let file_paths = args.distribution_paths;
+    let (mapping, reference_tree_bipartitions) = if let Some(reference_path) =
+        args.reference_tree
+    {
+        let reference_file = File::open(reference_path)?;
+        let reference_string = {
+            let mut reference_string: String = String::from("");
+            BufReader::new(reference_file).read_line(&mut reference_string)?;
+            parser::NewickParser::preprocess_input(reference_string)?
+        };
+        let reference_mapping =
+            parser::NewickParser::get_taxa_mapping(&reference_string);
+        let reference_bipartitions =
+            parser::NewickParser::new(&reference_string, &reference_mapping)
+                .parse();
+        (Some(reference_mapping), Some(reference_bipartitions))
+    } else {
+        (None, None)
+    };
+    let reference_distribution_file = File::open(args.reference_distribution)?;
+    let lines: Vec<String> = BufReader::new(reference_distribution_file)
+        .lines()
+        .map_while(|l| parser::NewickParser::preprocess_input(l.ok()?).ok())
+        .collect::<Vec<String>>();
+    let mapping = mapping
+        .unwrap_or_else(|| parser::NewickParser::get_taxa_mapping(&lines[0]));
+    let reference_distribution_bipartitions: Vec<Vec<BitVec>> = lines
+        .iter()
+        .map(|l| -> Result<Vec<BitVec>> {
+            Ok(parser::NewickParser::new(l, &mapping).parse())
+        })
+        .collect::<Result<Vec<Vec<BitVec>>>>()?;
+
+    if let Some(bipartitions) = reference_tree_bipartitions {
+        let reference_metrics =
+            metrics::compare_distribution_against_reference_tree(
+                &reference_distribution_bipartitions,
+                &bipartitions,
+            )?;
+        dbg!(reference_metrics);
+    }
+
+    let reference_distribution_bipartitions =
+        vec![reference_distribution_bipartitions
+            .into_iter()
+            .flatten()
+            .collect_vec()];
+
     let bipartitions_per_chain = file_paths
         .iter()
         .map(|f| {
@@ -24,74 +72,23 @@ fn main() -> Result<()> {
                     parser::NewickParser::preprocess_input(l.ok()?).ok()
                 })
                 .collect::<Vec<String>>();
-            let mapping = parser::NewickParser::get_taxa_mapping(&lines[0]);
             lines
                 .iter()
                 .flat_map(|l| parser::NewickParser::new(l, &mapping).parse())
                 .collect_vec()
         })
         .collect_vec();
-    let counters: Vec<Counter<_>> = bipartitions_per_chain
-        .iter()
-        .map(|b| b.iter().collect::<Counter<_>>())
-        .collect();
-    let all_biparts: HashSet<BitVec> = bipartitions_per_chain
-        .iter()
-        .flat_map(|b| b.clone())
-        .collect();
-    // TODO: is it correct to directly normalize and not divide by num_trees per chain? <noahares>
-    let bipartition_freqs_per_chain = Array2::from_shape_vec(
-        (2, all_biparts.len()),
-        all_biparts
-            .iter()
-            .map(|b| {
-                (counters[0][&b] as f64)
-                    / (bipartitions_per_chain[0].len() as f64)
-            })
-            .chain(all_biparts.iter().map(|b| {
-                (counters[1][&b] as f64)
-                    / (bipartitions_per_chain[1].len() as f64)
-            }))
-            .collect_vec(),
-    )?;
-    let sum_of_squared_freqs =
-        bipartition_freqs_per_chain.fold(0f64, |acc, v| acc + v * v);
-    let simple_distance = 0.5_f64
-        * bipartition_freqs_per_chain
-            .map_axis(Axis(0), |col| (col[0] - col[1]).abs())
-            .sum();
-    let hellinger_distance = (0.5_f64
-        * bipartition_freqs_per_chain
-            .map_axis(Axis(0), |col| (col[0].sqrt() - col[1].sqrt()).powi(2))
-            .sum())
-    .sqrt();
-    let asdsf = (bipartition_freqs_per_chain
-        .map_axis(Axis(0), |col| (col[0] - col[1]).powi(2))
-        .sum()
-        / sum_of_squared_freqs)
-        .sqrt();
-    let pcc = bipartition_freqs_per_chain.pearson_correlation()?;
-
-    let bipartition_sets: Vec<HashSet<BitVec>> = bipartitions_per_chain
+    let bipartitions_per_chain = reference_distribution_bipartitions
         .into_iter()
-        .map(HashSet::from_iter)
+        .chain(bipartitions_per_chain.into_iter())
         .collect_vec();
-    let unique_bipartitions_ratio = (bipartition_sets[0]
-        .symmetric_difference(&bipartition_sets[1])
-        .count() as f64)
-        / (all_biparts.len() as f64);
-    let unique_bipartitions_per_chain = [
-        (bipartition_sets[0].difference(&bipartition_sets[1]).count() as f64)
-            / (bipartition_sets[0].len() as f64),
-        (bipartition_sets[1].difference(&bipartition_sets[0]).count() as f64)
-            / (bipartition_sets[1].len() as f64),
-    ];
-    dbg!(simple_distance);
-    dbg!(hellinger_distance);
-    dbg!(asdsf);
-    dbg!(pcc[(0, 1)]);
-    dbg!(unique_bipartitions_ratio);
-    dbg!(unique_bipartitions_per_chain);
-    dbg!(all_biparts.len());
+    let metrics_data = metrics::MetricsData::new(&bipartitions_per_chain)?;
+    let metrics: Vec<metrics::DistanceMetrics> = (1..bipartitions_per_chain
+        .len())
+        .map(|i| metrics_data.distance_metrics(0, i, args.consensus_cutoff))
+        .collect::<Result<Vec<metrics::DistanceMetrics>>>()?;
+    for m in &metrics {
+        dbg!(m);
+    }
     Ok(())
 }
