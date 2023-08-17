@@ -4,6 +4,7 @@ use clap::Parser;
 use itertools::Itertools;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
 
 #[macro_use]
 extern crate assert_float_eq;
@@ -14,9 +15,39 @@ mod parser;
 
 fn main() -> Result<()> {
     let args = io::Args::parse();
-    let file_paths = args.distribution_paths;
+    if let Some(config_path) = args.config {
+        let config_str = std::fs::read_to_string(config_path)?;
+        let config: io::Data = serde_json::from_str(&config_str)?;
+        config.datasets.into_iter().for_each(|d| {
+            if let Ok((reference_metrics, distance_metrics)) = evaulate_dataset(
+                d.reference_tree,
+                d.reference_tool,
+                &d.tools,
+                args.consensus_cutoff,
+            ) {
+                dbg!(&reference_metrics);
+                for m in &distance_metrics {
+                    dbg!(m);
+                }
+            }
+        });
+    } else {
+        todo!()
+    }
+    Ok(())
+}
+
+fn evaulate_dataset(
+    reference_path: Option<PathBuf>,
+    reference_tool: io::Tool,
+    other_tools: &[io::Tool],
+    cutoff: f64,
+) -> Result<(
+    Option<metrics::ReferenceTreeMetrics>,
+    Vec<metrics::DistanceMetrics>,
+)> {
     let (mapping, reference_tree_bipartitions) = if let Some(reference_path) =
-        args.reference_tree
+        reference_path
     {
         let reference_file = File::open(reference_path)?;
         let reference_string = {
@@ -33,7 +64,8 @@ fn main() -> Result<()> {
     } else {
         (None, None)
     };
-    let reference_distribution_file = File::open(args.reference_distribution)?;
+    let reference_distribution_file =
+        File::open(reference_tool.distribution_path)?;
     let lines: Vec<String> = BufReader::new(reference_distribution_file)
         .lines()
         .map_while(|l| parser::NewickParser::preprocess_input(l.ok()?).ok())
@@ -47,14 +79,17 @@ fn main() -> Result<()> {
         })
         .collect::<Result<Vec<Vec<BitVec>>>>()?;
 
-    if let Some(bipartitions) = reference_tree_bipartitions {
-        let reference_metrics =
-            metrics::compare_distribution_against_reference_tree(
-                &reference_distribution_bipartitions,
-                &bipartitions,
-            )?;
-        dbg!(reference_metrics);
-    }
+    let reference_metrics =
+        if let Some(bipartitions) = reference_tree_bipartitions {
+            let reference_metrics =
+                metrics::compare_distribution_against_reference_tree(
+                    &reference_distribution_bipartitions,
+                    &bipartitions,
+                )?;
+            Some(reference_metrics)
+        } else {
+            None
+        };
 
     let reference_distribution_bipartitions =
         vec![reference_distribution_bipartitions
@@ -62,10 +97,11 @@ fn main() -> Result<()> {
             .flatten()
             .collect_vec()];
 
-    let bipartitions_per_chain = file_paths
+    let bipartitions_per_chain = other_tools
         .iter()
-        .map(|f| {
-            let file = File::open(f).expect("Failed to open file");
+        .map(|t| {
+            let file = File::open(t.distribution_path.clone())
+                .expect("Failed to open file");
             let lines: Vec<String> = BufReader::new(file)
                 .lines()
                 .map_while(|l| {
@@ -85,10 +121,7 @@ fn main() -> Result<()> {
     let metrics_data = metrics::MetricsData::new(&bipartitions_per_chain)?;
     let metrics: Vec<metrics::DistanceMetrics> = (1..bipartitions_per_chain
         .len())
-        .map(|i| metrics_data.distance_metrics(0, i, args.consensus_cutoff))
+        .map(|i| metrics_data.distance_metrics(0, i, cutoff))
         .collect::<Result<Vec<metrics::DistanceMetrics>>>()?;
-    for m in &metrics {
-        dbg!(m);
-    }
-    Ok(())
+    Ok((reference_metrics, metrics))
 }

@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use bitvec::prelude::*;
 use itertools::Itertools;
 use regex::Regex;
@@ -43,12 +43,16 @@ impl<'a, 'b> NewickParser<'a, 'b> {
     }
 
     pub fn preprocess_input(input: String) -> Result<String> {
-        Ok(Regex::new(r":[0-9.+eE-]+")?
-            .replace_all(
-                &input.trim().trim_end_matches(';').replace(")1", ")"),
-                "",
-            )
-            .to_string())
+        if input.is_empty() {
+            Err(anyhow!("Empty line"))
+        } else {
+            Ok(Regex::new(r":[0-9.+eE-]+")?
+                .replace_all(
+                    &input.trim().trim_end_matches(';').replace(")1", ")"),
+                    "",
+                )
+                .to_string())
+        }
     }
 
     pub fn parse(&mut self) -> Vec<BitVec> {
