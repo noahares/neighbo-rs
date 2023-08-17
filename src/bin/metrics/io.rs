@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use serde::{de, Deserialize, Serialize};
-use std::{path::PathBuf, str::FromStr};
+use std::{fmt::Display, io::Write, path::PathBuf, str::FromStr};
 
 use clap::Parser;
 
@@ -42,7 +42,17 @@ pub struct Args {
     pub output: Option<PathBuf>,
 }
 
-#[derive(Serialize, Clone, Debug)]
+impl Args {
+    pub fn get_output(&self) -> Result<Box<dyn Write>> {
+        match self.output {
+            Some(ref path) => Ok(std::fs::File::create(path)
+                .map(|f| Box::new(f) as Box<dyn Write>)?),
+            None => Ok(Box::new(std::io::stdout())),
+        }
+    }
+}
+
+#[derive(Serialize, Clone, Debug, Copy)]
 pub enum Moltype {
     AA,
     Dna,
@@ -56,6 +66,15 @@ impl FromStr for Moltype {
             "protein" => Ok(Self::AA),
             "DNA" => Ok(Self::Dna),
             _ => Err(anyhow!(format!("Unknown Moltype: {}", s))),
+        }
+    }
+}
+
+impl Display for Moltype {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Moltype::AA => write!(f, "protein"),
+            Moltype::Dna => write!(f, "DNA"),
         }
     }
 }
@@ -93,4 +112,62 @@ pub struct Tool {
     pub name: String,
     pub distribution_path: PathBuf,
     pub time: f64,
+}
+
+#[derive(Clone, Debug)]
+pub struct Metrics {
+    pub sequence_file: PathBuf,
+    pub reference_tree: Option<PathBuf>,
+    pub moltype: Moltype,
+    pub seed: u32,
+    pub num_trees: usize,
+    pub perturbation: f64,
+    pub ratio: f64,
+    pub reference_tool: String,
+    pub tool: String,
+    pub reference_metrics: Option<crate::metrics::ReferenceTreeMetrics>,
+    pub distance_metrics: crate::metrics::DistanceMetrics,
+}
+
+impl Metrics {
+    pub fn get_csv_header() -> String {
+        format!(
+            "sequence_file,\
+                     reference_tree,\
+                     moltype,\
+                     seed,\
+                     num_trees,\
+                     perturbation,\
+                     ratio,\
+                     reference_tool,\
+                     tool,\
+                     {},\
+                     {}",
+            crate::metrics::ReferenceTreeMetrics::get_csv_header(),
+            crate::metrics::DistanceMetrics::get_csv_header()
+        )
+    }
+    pub fn to_csv_row(&self) -> String {
+        format!(
+            "{},{},{},{},{},{},{},{},{},{},{}",
+            self.sequence_file.to_str().unwrap(),
+            self.reference_tree
+                .clone()
+                .unwrap_or(PathBuf::default())
+                .to_str()
+                .unwrap(),
+            self.moltype,
+            self.seed,
+            self.num_trees,
+            self.perturbation,
+            self.ratio,
+            self.reference_tool,
+            self.tool,
+            match self.reference_metrics.clone() {
+                Some(m) => m.to_csv_row(),
+                None => String::from(""),
+            },
+            self.distance_metrics.to_csv_row()
+        )
+    }
 }

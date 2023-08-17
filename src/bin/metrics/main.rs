@@ -1,9 +1,9 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use bitvec::vec::BitVec;
 use clap::Parser;
 use itertools::Itertools;
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 
 #[macro_use]
@@ -15,22 +15,54 @@ mod parser;
 
 fn main() -> Result<()> {
     let args = io::Args::parse();
-    if let Some(config_path) = args.config {
+    if let Some(config_path) = args.config.as_ref() {
         let config_str = std::fs::read_to_string(config_path)?;
         let config: io::Data = serde_json::from_str(&config_str)?;
-        config.datasets.into_iter().for_each(|d| {
-            if let Ok((reference_metrics, distance_metrics)) = evaulate_dataset(
-                d.reference_tree,
-                d.reference_tool,
-                &d.tools,
-                args.consensus_cutoff,
-            ) {
-                dbg!(&reference_metrics);
-                for m in &distance_metrics {
-                    dbg!(m);
+        let metrics: Vec<io::Metrics> = config
+            .datasets
+            .into_iter()
+            .map(|d| {
+                if let Ok((reference_metrics, distance_metrics)) =
+                    evaulate_dataset(
+                        d.reference_tree.clone(),
+                        d.reference_tool.clone(),
+                        &d.tools,
+                        args.consensus_cutoff,
+                    )
+                {
+                    Ok(distance_metrics
+                        .iter()
+                        .zip(d.tools.iter())
+                        .map(|(m, t)| io::Metrics {
+                            sequence_file: d.sequence_file.clone(),
+                            reference_tree: d.reference_tree.clone(),
+                            moltype: d.moltype,
+                            seed: d.seed,
+                            num_trees: d.num_trees,
+                            perturbation: d.perturbation,
+                            ratio: d.ratio,
+                            reference_tool: d.reference_tool.name.clone(),
+                            tool: t.name.clone(),
+                            reference_metrics: reference_metrics.clone(),
+                            distance_metrics: m.clone(),
+                        })
+                        .collect_vec())
+                } else {
+                    Err(anyhow!(format!(
+                        "Error processing the following dataframe:\n{:?}",
+                        d
+                    )))
                 }
-            }
-        });
+            })
+            .collect::<Result<Vec<Vec<io::Metrics>>>>()?
+            .into_iter()
+            .flatten()
+            .collect_vec();
+        let mut wtr = args.get_output()?;
+        writeln!(wtr, "{}", io::Metrics::get_csv_header())?;
+        for m in &metrics {
+            writeln!(wtr, "{}", m.to_csv_row())?;
+        }
     } else {
         todo!()
     }
