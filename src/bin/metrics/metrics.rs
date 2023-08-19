@@ -212,14 +212,14 @@ impl MetricsData {
 
 #[derive(Default, Debug, Clone, Serialize)]
 pub struct DistanceMetrics {
-    simple_distance: f64,
-    hellinger_distance: f64,
-    asdsf: f64,
-    consensus_distance: f64,
-    pearson_correlation_coefficient: f64,
-    unique_bipartition_ratio: f64,
-    unique_bipartition_ratio_per_chain: (f64, f64),
-    num_bipartitions: usize,
+    pub simple_distance: f64,
+    pub hellinger_distance: f64,
+    pub asdsf: f64,
+    pub consensus_distance: f64,
+    pub pearson_correlation_coefficient: f64,
+    pub unique_bipartition_ratio: f64,
+    pub unique_bipartition_ratio_per_chain: (f64, f64),
+    pub num_bipartitions: usize,
 }
 
 impl Display for DistanceMetrics {
@@ -241,36 +241,6 @@ impl Display for DistanceMetrics {
             self.unique_bipartition_ratio_per_chain.0,
             self.unique_bipartition_ratio_per_chain.1,
             self.num_bipartitions
-        )
-    }
-}
-
-impl DistanceMetrics {
-    pub fn get_csv_header() -> String {
-        String::from(
-            "simple_distance,\
-                     hellinger_distance,\
-                     asdsf,\
-                     consensus_distance,\
-                     pcc,\
-                     ubr,\
-                     ubr_ref,\
-                     ubr_tool,\
-                     num_biparts",
-        )
-    }
-    pub fn to_csv_row(&self) -> String {
-        format!(
-            "{},{},{},{},{},{},{},{},{}",
-            self.simple_distance,
-            self.hellinger_distance,
-            self.asdsf,
-            self.consensus_distance,
-            self.pearson_correlation_coefficient,
-            self.unique_bipartition_ratio,
-            self.unique_bipartition_ratio_per_chain.0,
-            self.unique_bipartition_ratio_per_chain.1,
-            self.num_bipartitions,
         )
     }
 }
@@ -317,44 +287,15 @@ pub fn consensus_bipartitions(
 
 #[derive(Debug, Default, Clone)]
 pub struct RFDistanceStats {
-    min: f64,
-    mean: f64,
-    max: f64,
-}
-
-impl RFDistanceStats {
-    fn get_csv_header() -> String {
-        String::from(
-            "reference_min_rf_distance,\
-                    reference_mean_rf_distance,\
-                    reference_max_rf_distance",
-        )
-    }
-    fn to_csv_row(&self) -> String {
-        format!("{},{},{}", self.min, self.mean, self.max,)
-    }
+    pub min: f64,
+    pub mean: f64,
+    pub max: f64,
 }
 
 #[derive(Debug, Default, Clone)]
 pub struct ReferenceTreeMetrics {
-    missed_splits_ratio: f64,
-    rf_distance_stats: RFDistanceStats,
-}
-
-impl ReferenceTreeMetrics {
-    pub fn get_csv_header() -> String {
-        format!(
-            "reference_missed_splits_ratio,{}",
-            RFDistanceStats::get_csv_header()
-        )
-    }
-    pub fn to_csv_row(&self) -> String {
-        format!(
-            "{},{}",
-            self.missed_splits_ratio,
-            self.rf_distance_stats.to_csv_row(),
-        )
-    }
+    pub missed_splits_ratio: f64,
+    pub rf_distance_stats: RFDistanceStats,
 }
 
 pub fn compare_distribution_against_reference_tree(

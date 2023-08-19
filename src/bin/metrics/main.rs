@@ -3,7 +3,7 @@ use bitvec::vec::BitVec;
 use clap::Parser;
 use itertools::Itertools;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
 #[macro_use]
@@ -33,18 +33,12 @@ fn main() -> Result<()> {
                     Ok(distance_metrics
                         .iter()
                         .zip(d.tools.iter())
-                        .map(|(m, t)| io::Metrics {
-                            sequence_file: d.sequence_file.clone(),
-                            reference_tree: d.reference_tree.clone(),
-                            moltype: d.moltype,
-                            seed: d.seed,
-                            num_trees: d.num_trees,
-                            perturbation: t.perturbation,
-                            ratio: t.ratio,
-                            reference_tool: d.reference_tool.name.clone(),
-                            tool: t.name.clone(),
-                            reference_metrics: reference_metrics.clone(),
-                            distance_metrics: m.clone(),
+                        .map(|(m, t)| {
+                            io::Metrics::from((
+                                (d, t).into(),
+                                reference_metrics.clone(),
+                                m.clone(),
+                            ))
                         })
                         .collect_vec())
                 } else {
@@ -58,11 +52,11 @@ fn main() -> Result<()> {
             .into_iter()
             .flatten()
             .collect_vec();
-        let mut wtr = args.get_output()?;
-        writeln!(wtr, "{}", io::Metrics::get_csv_header())?;
+        let mut wtr = csv::Writer::from_writer(args.get_output()?);
         for m in &metrics {
-            writeln!(wtr, "{}", m.to_csv_row())?;
+            wtr.serialize(m)?;
         }
+        wtr.flush()?;
     } else {
         todo!()
     }
