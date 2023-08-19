@@ -3,7 +3,7 @@ use std::{collections::HashSet, fmt::Display};
 use anyhow::{Context, Result};
 use bitvec::vec::BitVec;
 use counter::Counter;
-use itertools::Itertools;
+use itertools::{Itertools, Either};
 use ndarray::Array2;
 use ndarray_stats::CorrelationExt;
 use serde::Serialize;
@@ -73,6 +73,7 @@ impl MetricsData {
             hellinger_distance: self
                 .hellinger_distance(chain_index_a, chain_index_b)?,
             asdsf: self.asdsf(chain_index_a, chain_index_b)?,
+            consensus_distance: self.consensus_rf(chain_index_a, chain_index_b, cutoff)?,
             pearson_correlation_coefficient: self
                 .pearson_correlation_coefficient(
                     chain_index_a,
@@ -158,16 +159,20 @@ impl MetricsData {
         chain_index_b: usize,
         cutoff: f64,
     ) -> Result<f64> {
-        rf_distance(
-            &consensus_bipartitions(
-                &self.bipartitions_per_chain[chain_index_a],
-                cutoff,
-            )?,
-            &consensus_bipartitions(
-                &self.bipartitions_per_chain[chain_index_b],
-                cutoff,
-            )?,
-        )
+        let unique_count_a = self.bipartitions_per_chain[chain_index_a].iter().unique().count();
+        let unique_count_b = self.bipartitions_per_chain[chain_index_b].iter().unique().count();
+        let (consensus_bipartitions_a, remainder_a) = consensus_bipartitions(
+            &self.bipartitions_per_chain[chain_index_a],
+            cutoff,
+        )?;
+        let (consensus_bipartitions_b, remainder_b) = consensus_bipartitions(
+            &self.bipartitions_per_chain[chain_index_b],
+            cutoff,
+        )?;
+        let consensus_set_a: HashSet<&BitVec> = HashSet::from_iter(consensus_bipartitions_a.iter());
+        let consensus_set_b: HashSet<&BitVec> = HashSet::from_iter(consensus_bipartitions_b.iter());
+        let symmetric_difference = Iterator::count(consensus_set_a.symmetric_difference(&consensus_set_b)) + remainder_a.len() + remainder_b.len();
+        Ok(symmetric_difference as f64 / (unique_count_a + unique_count_b) as f64)
     }
 
     pub fn unique_bipartition_stats(
@@ -210,6 +215,7 @@ pub struct DistanceMetrics {
     simple_distance: f64,
     hellinger_distance: f64,
     asdsf: f64,
+    consensus_distance: f64,
     pearson_correlation_coefficient: f64,
     unique_bipartition_ratio: f64,
     unique_bipartition_ratio_per_chain: (f64, f64),
@@ -245,6 +251,7 @@ impl DistanceMetrics {
             "simple_distance,\
                      hellinger_distance,\
                      asdsf,\
+                     consensus_distance,\
                      pcc,\
                      ubr,\
                      ubr_ref,\
@@ -254,10 +261,11 @@ impl DistanceMetrics {
     }
     pub fn to_csv_row(&self) -> String {
         format!(
-            "{},{},{},{},{},{},{},{}",
+            "{},{},{},{},{},{},{},{},{}",
             self.simple_distance,
             self.hellinger_distance,
             self.asdsf,
+            self.consensus_distance,
             self.pearson_correlation_coefficient,
             self.unique_bipartition_ratio,
             self.unique_bipartition_ratio_per_chain.0,
@@ -294,17 +302,17 @@ pub fn missed_splits_ratio(
 pub fn consensus_bipartitions(
     bipartitions: &[BitVec],
     cutoff: f64,
-) -> Result<Vec<BitVec>> {
+) -> Result<(Vec<BitVec>, Vec<BitVec>)> {
+    // NOTE: this is kinda ugly to get the number of trees <noahares>
     let num_trees = bipartitions.len() / (bipartitions[0].len() - 3);
     Ok(bipartitions
         .iter()
         .counts()
         .into_iter()
-        .filter_map(|(b, c)| match c as f64 / num_trees as f64 >= cutoff {
-            true => Some(b.clone()),
-            false => None,
-        })
-        .collect_vec())
+        .partition_map(|(b, c)| match c as f64 / num_trees as f64 >= cutoff {
+            true => Either::Left(b.clone()),
+            false => Either::Right(b.clone()),
+        }))
 }
 
 #[derive(Debug, Default, Clone)]
@@ -645,6 +653,60 @@ mod tests {
         assert_float_absolute_eq!(
             metrics_data.pearson_correlation_coefficient(0, 1).unwrap(),
             1.0
+        );
+    }
+
+    #[test]
+    fn test_max_consensus_distance() {
+        let bipartitions = vec![
+            vec![
+                bitvec![0, 0, 0, 1],
+                bitvec![0, 0, 0, 1],
+                bitvec![0, 0, 0, 1],
+                bitvec![0, 0, 1, 1],
+                bitvec![0, 0, 1, 1],
+                bitvec![0, 1, 1, 1],
+            ],
+            vec![
+                bitvec![0, 0, 0, 1],
+                bitvec![0, 0, 0, 1],
+                bitvec![0, 0, 1, 0],
+                bitvec![0, 0, 1, 0],
+                bitvec![0, 0, 1, 0],
+                bitvec![0, 1, 1, 1],
+            ],
+        ];
+        let metrics_data = MetricsData::new(&bipartitions).unwrap();
+        assert_float_absolute_eq!(
+            metrics_data.consensus_rf(0, 1, 0.5).unwrap(),
+            1.0
+        );
+    }
+
+    #[test]
+    fn test_min_consensus_distance() {
+        let bipartitions = vec![
+            vec![
+                bitvec![0, 0, 0, 1],
+                bitvec![0, 0, 0, 1],
+                bitvec![0, 0, 0, 1],
+                bitvec![0, 0, 1, 0],
+                bitvec![0, 0, 1, 0],
+                bitvec![0, 0, 1, 0],
+            ],
+            vec![
+                bitvec![0, 0, 0, 1],
+                bitvec![0, 0, 0, 1],
+                bitvec![0, 0, 0, 1],
+                bitvec![0, 0, 1, 0],
+                bitvec![0, 0, 1, 0],
+                bitvec![0, 0, 1, 0],
+            ],
+        ];
+        let metrics_data = MetricsData::new(&bipartitions).unwrap();
+        assert_float_absolute_eq!(
+            metrics_data.consensus_rf(0, 1, 0.5).unwrap(),
+            0.0
         );
     }
 }

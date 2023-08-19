@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use serde::{de, Deserialize, Serialize};
-use std::{fmt::Display, io::Write, path::PathBuf, str::FromStr};
+use std::{fmt::Display, io::Write, path::PathBuf, str::FromStr, collections::HashMap};
 
 use clap::Parser;
 
@@ -91,7 +91,7 @@ impl<'de> Deserialize<'de> for Moltype {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Data {
-    pub datasets: Vec<DataSet>,
+    pub datasets: HashMap<String, DataSet>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -101,8 +101,6 @@ pub struct DataSet {
     pub moltype: Moltype,
     pub seed: u32,
     pub num_trees: usize,
-    pub perturbation: f64,
-    pub ratio: f64,
     pub reference_tool: Tool,
     pub tools: Vec<Tool>,
 }
@@ -112,6 +110,8 @@ pub struct Tool {
     pub name: String,
     pub distribution_path: PathBuf,
     pub time: f64,
+    pub perturbation: Option<f64>,
+    pub ratio: Option<f64>,
 }
 
 #[derive(Clone, Debug)]
@@ -121,8 +121,8 @@ pub struct Metrics {
     pub moltype: Moltype,
     pub seed: u32,
     pub num_trees: usize,
-    pub perturbation: f64,
-    pub ratio: f64,
+    pub perturbation: Option<f64>,
+    pub ratio: Option<f64>,
     pub reference_tool: String,
     pub tool: String,
     pub reference_metrics: Option<crate::metrics::ReferenceTreeMetrics>,
@@ -159,8 +159,8 @@ impl Metrics {
             self.moltype,
             self.seed,
             self.num_trees,
-            self.perturbation,
-            self.ratio,
+            match self.perturbation { Some(p) => p.to_string(), None => "".into() },
+            match self.ratio { Some(r) => r.to_string(), None => "".into() },
             self.reference_tool,
             self.tool,
             match self.reference_metrics.clone() {

@@ -20,7 +20,7 @@ fn main() -> Result<()> {
         let config: io::Data = serde_json::from_str(&config_str)?;
         let metrics: Vec<io::Metrics> = config
             .datasets
-            .into_iter()
+            .values()
             .map(|d| {
                 if let Ok((reference_metrics, distance_metrics)) =
                     evaulate_dataset(
@@ -39,8 +39,8 @@ fn main() -> Result<()> {
                             moltype: d.moltype,
                             seed: d.seed,
                             num_trees: d.num_trees,
-                            perturbation: d.perturbation,
-                            ratio: d.ratio,
+                            perturbation: t.perturbation,
+                            ratio: t.ratio,
                             reference_tool: d.reference_tool.name.clone(),
                             tool: t.name.clone(),
                             reference_metrics: reference_metrics.clone(),
