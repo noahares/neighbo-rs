@@ -1,20 +1,29 @@
-use std::{collections::HashSet, fmt::Display};
+use std::{
+    collections::HashSet,
+    fmt::Display,
+    fs::File,
+    io::{BufRead, BufReader},
+    path::PathBuf,
+};
 
 use anyhow::{Context, Result};
 use bitvec::vec::BitVec;
 use counter::Counter;
-use itertools::{Itertools, Either};
+use itertools::{Either, Itertools};
+use logging_timer::{time, timer, Level};
 use ndarray::Array2;
 use ndarray_stats::CorrelationExt;
 use serde::Serialize;
+
+use crate::{
+    datastructures::{Metadata, Tool},
+    io, parser,
+};
 
 #[derive(Debug, Clone)]
 pub struct MetricsData {
     bipartitions_per_chain: Vec<Vec<BitVec>>,
     bipartition_freqs_per_chain: Vec<Vec<f64>>,
-    // TODO: cannot have all biparts for pairwise scores! Need to compute from scratch for each
-    // metric or pass as param for bulk metrics <noahares>
-    // all_bipartitions: HashSet<BitVec>,
 }
 
 impl MetricsData {
@@ -27,7 +36,6 @@ impl MetricsData {
             .iter()
             .flat_map(|b| b.clone())
             .collect();
-        // TODO: is it correct to directly normalize and not divide by num_trees per chain? <noahares>
         let bipartition_freqs_per_chain: Vec<Vec<f64>> =
             bipartitions_per_chain
                 .iter()
@@ -45,17 +53,13 @@ impl MetricsData {
             - 1.0)
             .abs()
             <= 1e-7));
-        // let bipartition_sets: Vec<HashSet<BitVec>> = bipartitions_per_chain
-        //     .into_iter()
-        //     .map(HashSet::from_iter)
-        //     .collect_vec();
         Ok(Self {
             bipartitions_per_chain: bipartitions_per_chain.to_vec(),
             bipartition_freqs_per_chain,
-            // all_bipartitions,
         })
     }
 
+    #[time("info")]
     pub fn distance_metrics(
         &self,
         chain_index_a: usize,
@@ -73,7 +77,11 @@ impl MetricsData {
             hellinger_distance: self
                 .hellinger_distance(chain_index_a, chain_index_b)?,
             asdsf: self.asdsf(chain_index_a, chain_index_b)?,
-            consensus_distance: self.consensus_rf(chain_index_a, chain_index_b, cutoff)?,
+            consensus_distance: self.consensus_rf(
+                chain_index_a,
+                chain_index_b,
+                cutoff,
+            )?,
             pearson_correlation_coefficient: self
                 .pearson_correlation_coefficient(
                     chain_index_a,
@@ -159,8 +167,14 @@ impl MetricsData {
         chain_index_b: usize,
         cutoff: f64,
     ) -> Result<f64> {
-        let unique_count_a = self.bipartitions_per_chain[chain_index_a].iter().unique().count();
-        let unique_count_b = self.bipartitions_per_chain[chain_index_b].iter().unique().count();
+        let unique_count_a = self.bipartitions_per_chain[chain_index_a]
+            .iter()
+            .unique()
+            .count();
+        let unique_count_b = self.bipartitions_per_chain[chain_index_b]
+            .iter()
+            .unique()
+            .count();
         let (consensus_bipartitions_a, remainder_a) = consensus_bipartitions(
             &self.bipartitions_per_chain[chain_index_a],
             cutoff,
@@ -169,10 +183,16 @@ impl MetricsData {
             &self.bipartitions_per_chain[chain_index_b],
             cutoff,
         )?;
-        let consensus_set_a: HashSet<&BitVec> = HashSet::from_iter(consensus_bipartitions_a.iter());
-        let consensus_set_b: HashSet<&BitVec> = HashSet::from_iter(consensus_bipartitions_b.iter());
-        let symmetric_difference = Iterator::count(consensus_set_a.symmetric_difference(&consensus_set_b)) + remainder_a.len() + remainder_b.len();
-        Ok(symmetric_difference as f64 / (unique_count_a + unique_count_b) as f64)
+        let consensus_set_a: HashSet<&BitVec> =
+            HashSet::from_iter(consensus_bipartitions_a.iter());
+        let consensus_set_b: HashSet<&BitVec> =
+            HashSet::from_iter(consensus_bipartitions_b.iter());
+        let symmetric_difference = Iterator::count(
+            consensus_set_a.symmetric_difference(&consensus_set_b),
+        ) + remainder_a.len()
+            + remainder_b.len();
+        Ok(symmetric_difference as f64
+            / (unique_count_a + unique_count_b) as f64)
     }
 
     pub fn unique_bipartition_stats(
@@ -275,14 +295,12 @@ pub fn consensus_bipartitions(
 ) -> Result<(Vec<BitVec>, Vec<BitVec>)> {
     // NOTE: this is kinda ugly to get the number of trees <noahares>
     let num_trees = bipartitions.len() / (bipartitions[0].len() - 3);
-    Ok(bipartitions
-        .iter()
-        .counts()
-        .into_iter()
-        .partition_map(|(b, c)| match c as f64 / num_trees as f64 >= cutoff {
+    Ok(bipartitions.iter().counts().into_iter().partition_map(
+        |(b, c)| match c as f64 / num_trees as f64 >= cutoff {
             true => Either::Left(b.clone()),
             false => Either::Right(b.clone()),
-        }))
+        },
+    ))
 }
 
 #[derive(Debug, Default, Clone)]
@@ -298,6 +316,7 @@ pub struct ReferenceTreeMetrics {
     pub rf_distance_stats: RFDistanceStats,
 }
 
+#[time("info")]
 pub fn compare_distribution_against_reference_tree(
     distribution_bipartitions: &[Vec<BitVec>],
     reference_tree_bipartitions: &[BitVec],
@@ -340,6 +359,98 @@ pub fn compare_distribution_against_reference_tree(
                 .context("Empty list of RF-distances.")?,
         },
     })
+}
+
+#[time("info")]
+pub fn evaulate_dataset(
+    reference_path: Option<PathBuf>,
+    reference_tool: Tool,
+    other_tools: &[Tool],
+    cutoff: f64,
+    metadata: Vec<Metadata>,
+) -> Result<Vec<io::Metrics>> {
+    let (mapping, reference_tree_bipartitions) = if let Some(reference_path) =
+        reference_path
+    {
+        let reference_file = File::open(reference_path)?;
+        let reference_string = {
+            let mut reference_string: String = String::from("");
+            BufReader::new(reference_file).read_line(&mut reference_string)?;
+            parser::NewickParser::preprocess_input(reference_string)?
+        };
+        let reference_mapping =
+            parser::NewickParser::get_taxa_mapping(&reference_string);
+        let reference_bipartitions =
+            parser::NewickParser::new(&reference_string, &reference_mapping)
+                .parse();
+        (Some(reference_mapping), Some(reference_bipartitions))
+    } else {
+        (None, None)
+    };
+    let reference_distribution_file =
+        File::open(reference_tool.distribution_path)?;
+    let lines: Vec<String> = BufReader::new(reference_distribution_file)
+        .lines()
+        .map_while(|l| parser::NewickParser::preprocess_input(l.ok()?).ok())
+        .collect::<Vec<String>>();
+    let mapping = mapping
+        .unwrap_or_else(|| parser::NewickParser::get_taxa_mapping(&lines[0]));
+    let reference_distribution_bipartitions: Vec<Vec<BitVec>> = lines
+        .iter()
+        .map(|l| -> Result<Vec<BitVec>> {
+            Ok(parser::NewickParser::new(l, &mapping).parse())
+        })
+        .collect::<Result<Vec<Vec<BitVec>>>>()?;
+
+    let reference_metrics = if let Some(bipartitions) =
+        reference_tree_bipartitions
+    {
+        let reference_metrics = compare_distribution_against_reference_tree(
+            &reference_distribution_bipartitions,
+            &bipartitions,
+        )?;
+        Some(reference_metrics)
+    } else {
+        None
+    };
+
+    let reference_distribution_bipartitions =
+        vec![reference_distribution_bipartitions
+            .into_iter()
+            .flatten()
+            .collect_vec()];
+
+    let bipartitions_per_chain = {
+        let _tmr = timer!(Level::Info; "Parse distributions", "Parsed {} distributions", other_tools.len());
+        reference_distribution_bipartitions
+            .into_iter()
+            .chain(other_tools.iter().map(|t| {
+                let file = File::open(t.distribution_path.clone())
+                    .expect("Failed to open file");
+                BufReader::new(file)
+                    .lines()
+                    .map_while(|l| {
+                        parser::NewickParser::preprocess_input(l.ok()?).ok()
+                    })
+                    .flat_map(|l| {
+                        parser::NewickParser::new(&l, &mapping).parse()
+                    })
+                    .collect_vec()
+            }))
+            .collect_vec()
+    };
+    let metrics_data = MetricsData::new(&bipartitions_per_chain)?;
+    (1..bipartitions_per_chain.len())
+        .map(|i| metrics_data.distance_metrics(0, i, cutoff))
+        .zip(metadata.iter())
+        .map(|(m, meta)| -> Result<io::Metrics> {
+            Ok(io::Metrics::from((
+                meta.clone(),
+                reference_metrics.clone(),
+                m?.clone(),
+            )))
+        })
+        .collect::<Result<Vec<io::Metrics>>>()
 }
 
 #[cfg(test)]

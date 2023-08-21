@@ -1,10 +1,11 @@
 use anyhow::{anyhow, Context, Result};
-use serde::{de, Deserialize, Serialize};
-use std::{
-    collections::HashMap, fmt::Display, io::Write, path::PathBuf, str::FromStr,
-};
+use clap_verbosity_flag::Verbosity;
+use serde::{Deserialize, Serialize};
+use std::{io::Write, path::PathBuf};
 
 use clap::Parser;
+
+use crate::datastructures::{Metadata, Moltype};
 
 fn normalized_ratio(s: &str) -> Result<f64> {
     let ratio: f64 = s
@@ -42,6 +43,8 @@ pub struct Args {
     /// Output path
     #[arg(short, long)]
     pub output: Option<PathBuf>,
+    #[command(flatten)]
+    pub verbosity: Verbosity,
 }
 
 impl Args {
@@ -54,106 +57,13 @@ impl Args {
     }
 }
 
-#[derive(Serialize, Clone, Debug, Copy)]
-pub enum Moltype {
-    #[serde(rename = "protein")]
-    AA,
-    #[serde(rename = "DNA")]
-    Dna,
-}
-
-impl FromStr for Moltype {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self> {
-        match s {
-            "protein" => Ok(Self::AA),
-            "DNA" => Ok(Self::Dna),
-            _ => Err(anyhow!(format!("Unknown Moltype: {}", s))),
-        }
-    }
-}
-
-impl Display for Moltype {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match *self {
-            Moltype::AA => write!(f, "protein"),
-            Moltype::Dna => write!(f, "DNA"),
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for Moltype {
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s = String::deserialize(deserializer)?;
-        FromStr::from_str(&s).map_err(de::Error::custom)
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Data {
-    pub datasets: HashMap<String, DataSet>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct DataSet {
-    pub sequence_file: PathBuf,
-    pub reference_tree: Option<PathBuf>,
-    pub moltype: Moltype,
-    pub seed: u32,
-    pub num_trees: usize,
-    pub reference_tool: Tool,
-    pub tools: Vec<Tool>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Tool {
-    pub name: String,
-    pub distribution_path: PathBuf,
-    pub time: f64,
-    pub perturbation: Option<f64>,
-    pub ratio: Option<f64>,
-}
-
-#[derive(Clone, Debug)]
-pub struct Metadata {
-    pub sequence_file: PathBuf,
-    pub reference_tree: Option<PathBuf>,
-    pub moltype: Moltype,
-    pub seed: u32,
-    pub num_trees: usize,
-    pub perturbation: Option<f64>,
-    pub ratio: Option<f64>,
-    pub reference_tool: String,
-    pub tool: String,
-}
-
-impl From<(&DataSet, &Tool)> for Metadata {
-    fn from((d, t): (&DataSet, &Tool)) -> Self {
-        Self {
-            sequence_file: d.sequence_file.clone(),
-            reference_tree: d.reference_tree.clone(),
-            moltype: d.moltype,
-            seed: d.seed,
-            num_trees: d.num_trees,
-            perturbation: t.perturbation,
-            ratio: t.ratio,
-            reference_tool: d.reference_tool.name.clone(),
-            tool: t.name.clone(),
-        }
-    }
-}
-
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Metrics {
-    sequence_file: PathBuf,
+    sequence_file: Option<PathBuf>,
     reference_tree: Option<PathBuf>,
-    moltype: Moltype,
-    seed: u32,
-    num_trees: usize,
+    moltype: Option<Moltype>,
+    seed: Option<u32>,
+    num_trees: Option<usize>,
     perturbation: Option<f64>,
     ratio: Option<f64>,
     reference_tool: String,

@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use bitvec::prelude::*;
 use itertools::Itertools;
+use logging_timer::time;
 use regex::Regex;
 use std::{
     collections::{HashMap, HashSet},
@@ -25,6 +26,7 @@ impl<'a, 'b> NewickParser<'a, 'b> {
         }
     }
 
+    #[time("info")]
     pub fn get_taxa_mapping(input: &str) -> HashMap<String, BitVec> {
         let taxa_regex = Regex::new(r"[A-Za-z0-9_|]+").unwrap();
         let taxa: Vec<String> = taxa_regex
