@@ -1,6 +1,7 @@
 use crate::nj::RandomizationStrategy;
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
+use clap_verbosity_flag::Verbosity;
 use std::{io::Write, path::PathBuf};
 
 fn normalized_ratio(s: &str) -> Result<f64> {
@@ -41,6 +42,8 @@ pub struct Args {
     /// Output path
     #[arg(short, long)]
     pub output: Option<PathBuf>,
+    #[command(flatten)]
+    pub verbosity: Verbosity,
 }
 
 impl Args {

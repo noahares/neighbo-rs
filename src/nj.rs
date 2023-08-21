@@ -1,3 +1,4 @@
+use ::logging_timer::time;
 use anyhow::Result;
 use itertools::Itertools;
 use ordered_float::NotNan;
@@ -91,6 +92,7 @@ pub enum RandomizationStrategy {
     Deterministic,
 }
 
+#[time("info")]
 pub fn nj(
     mut distance_matrix: DistanceMatrix,
     strategy: RandomizationStrategy,
@@ -118,12 +120,13 @@ pub fn nj(
 
         let q = |&(&i, &j): &(&usize, &usize)| -> NotNan<f64> {
             debug_assert!(i < j);
-            NotNan::new(
-                (active.len() - 2) as f64 * distance_matrix.get_lt(i, j)
-                    - sum_d[i]
-                    - sum_d[j],
-            )
-            .unwrap()
+            unsafe {
+                NotNan::new_unchecked(
+                    (active.len() - 2) as f64 * distance_matrix.get_lt(i, j)
+                        - sum_d[i]
+                        - sum_d[j],
+                )
+            }
         };
         let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
         let (i, j) = match strategy {
@@ -188,7 +191,6 @@ mod tests {
         let result =
             nj(matrix, super::RandomizationStrategy::Deterministic, 0, 0.0)
                 .unwrap();
-        // println!("{}", result);
         assert_eq!(
             result.to_string(),
             "(((taxon0:13,taxon1:4):4,taxon2:4):5,taxon3:5);"

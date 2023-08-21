@@ -1,5 +1,6 @@
 use anyhow::Result;
 use core::{fmt, str::FromStr};
+use logging_timer::time;
 use std::path::Path;
 
 #[derive(Clone)]
@@ -13,14 +14,14 @@ impl DistanceMatrix {
         Self { labels, distances }
     }
 
-    #[inline(always)]
+    #[inline]
     fn index_from_row_and_col(i: usize, j: usize, n: usize) -> usize {
         let (i, j) = (i.min(j), i.max(j));
         (i * n) - (i * (i + 3) / 2) + (j - 1)
     }
 
     // optimised version if i < j is guaranteed
-    #[inline(always)]
+    #[inline]
     fn index_from_row_and_col_lt(i: usize, j: usize, n: usize) -> usize {
         (i * n) - (i * (i + 3) / 2) + (j - 1)
     }
@@ -29,19 +30,19 @@ impl DistanceMatrix {
         self.labels.iter()
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn get(&self, i: usize, j: usize) -> f64 {
         debug_assert_ne!(i, j);
         self.distances[Self::index_from_row_and_col(i, j, self.num_taxa())]
     }
 
     // optimised version if i < j is guaranteed
-    #[inline(always)]
+    #[inline]
     pub fn get_lt(&self, i: usize, j: usize) -> f64 {
         self.distances[Self::index_from_row_and_col_lt(i, j, self.num_taxa())]
     }
 
-    #[inline(always)]
+    #[inline]
     pub fn set(&mut self, i: usize, j: usize, v: f64) {
         debug_assert_ne!(i, j);
         self.distances
@@ -55,6 +56,7 @@ impl DistanceMatrix {
         self.labels.len()
     }
 
+    #[time("info")]
     #[inline(always)]
     pub fn perturb(
         &mut self,

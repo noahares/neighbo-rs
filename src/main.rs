@@ -15,6 +15,9 @@ fn main() -> Result<()> {
     if (args.noise == 0.0 || args.noise_ratio == 0.0) && args.num_trees > 1 {
         warn!("Generating {} identical trees! Consider increasing `--noise` or `--noise_ratio`", args.num_trees)
     }
+    env_logger::Builder::new()
+        .filter_level(args.verbosity.log_level_filter())
+        .init();
     let distance_matrix =
         datastructures::DistanceMatrix::from_file(&args.sequence_file)?;
     let mut rng = Xoshiro256PlusPlus::seed_from_u64(args.seed);
