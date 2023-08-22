@@ -1,5 +1,6 @@
 use anyhow::Result;
 use core::{fmt, str::FromStr};
+use itertools::Itertools;
 use logging_timer::time;
 use std::path::Path;
 
@@ -119,12 +120,11 @@ impl PhyloTree {
         Self::new(name, vec![])
     }
 
-    pub fn join(
-        name: &str,
-        (l, d_l): (Self, f64),
-        (r, d_r): (Self, f64),
-    ) -> Self {
-        Self::new(name, vec![(l, Some(d_l)), (r, Some(d_r))])
+    pub fn join(name: &str, nodes: Vec<(Self, f64)>) -> Self {
+        Self::new(
+            name,
+            nodes.into_iter().map(|(t, d)| (t, Some(d))).collect_vec(),
+        )
     }
 
     fn to_string_impl(&self) -> String {

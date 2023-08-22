@@ -105,7 +105,7 @@ pub fn nj(
         .labels()
         .map(|name| Some(PhyloTree::new_leaf(name)))
         .collect();
-    while active.len() > 2 {
+    while active.len() > 3 {
         let sum_d = {
             let mut sum_d = vec![0.0; n];
             active.iter().for_each(|i: &usize| {
@@ -155,18 +155,28 @@ pub fn nj(
 
         trees[i] = Some(PhyloTree::join(
             "",
-            (trees[i].take().unwrap(), d_i),
-            (trees[j].take().unwrap(), d_j),
+            vec![
+                (trees[i].take().unwrap(), d_i),
+                (trees[j].take().unwrap(), d_j),
+            ],
         ));
     }
 
-    // finalize remaining 2 nodes
-    if let [i, j] = active[..] {
-        let d = distance_matrix.get_lt(i, j) / 2.;
+    // finalize remaining 3 nodes
+    if let [i, j, k] = active[..] {
+        let d_i = (distance_matrix.get_lt(i, j)
+            + distance_matrix.get_lt(i, k)
+            - distance_matrix.get_lt(j, k))
+            / 2.;
+        let d_j = distance_matrix.get_lt(i, j) - d_i;
+        let d_k = distance_matrix.get_lt(i, k) - d_i;
         trees[i] = Some(PhyloTree::join(
             "",
-            (trees[i].take().unwrap(), d),
-            (trees[j].take().unwrap(), d),
+            vec![
+                (trees[i].take().unwrap(), d_i),
+                (trees[j].take().unwrap(), d_j),
+                (trees[k].take().unwrap(), d_k),
+            ],
         ))
     }
     Ok(trees[0].take().unwrap())
@@ -193,7 +203,7 @@ mod tests {
                 .unwrap();
         assert_eq!(
             result.to_string(),
-            "(((taxon0:13,taxon1:4):4,taxon2:4):5,taxon3:5);"
+            "((taxon0:13,taxon1:4):4,taxon2:4,taxon3:10);"
         );
     }
 
@@ -211,7 +221,7 @@ mod tests {
                 .unwrap();
         assert_eq!(
             result.to_string(),
-            "((((taxon0:2,taxon1:3):3,taxon2:4):2,taxon3:2):0.5,taxon4:0.5);"
+            "(((taxon0:2,taxon1:3):3,taxon2:4):2,taxon3:2,taxon4:1);"
         );
     }
 }
