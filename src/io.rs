@@ -27,6 +27,9 @@ pub struct Args {
     /// stddev of noise as a multiplicative factor
     #[arg(short, long, default_value_t = 0.2, value_parser = normalized_ratio)]
     pub noise: f64,
+    /// stddev of noise as a multiplicative factor
+    #[arg(long, default_value_t = false)]
+    pub single_noise: bool,
     /// ratio of matrix entries that get perturbed in each iteration
     #[arg(short = 'r', long, default_value_t = 1.0, value_parser = normalized_ratio)]
     pub noise_ratio: f64,

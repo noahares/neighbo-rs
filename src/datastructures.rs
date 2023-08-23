@@ -58,16 +58,26 @@ impl DistanceMatrix {
     }
 
     #[time("info")]
-    #[inline(always)]
+    #[inline]
     pub fn perturb(
         &mut self,
         rng: &mut impl rand::Rng,
         distribution: &impl rand::distributions::Distribution<f64>,
         ratio: f64,
+        common_noise: bool,
     ) {
+        let single_noise = if common_noise {
+            distribution.sample(rng).abs()
+        } else {
+            0.0
+        };
         self.distances.iter_mut().for_each(|i| {
             if *i > 0.0 && (ratio == 1.0 || rng.gen_bool(ratio)) {
-                *i *= distribution.sample(rng).abs()
+                *i *= if common_noise {
+                    single_noise
+                } else {
+                    distribution.sample(rng).abs()
+                }
             }
         });
     }
@@ -192,7 +202,7 @@ mod tests {
         let mut matrix_2 = matrix.clone();
         let mut rng = Xoroshiro128PlusPlus::seed_from_u64(0);
         let distribution = rand_distr::Normal::new(1.0, 0.0).unwrap();
-        matrix_2.perturb(&mut rng, &distribution, 1.0);
+        matrix_2.perturb(&mut rng, &distribution, 1.0, false);
         assert_eq!(matrix.distances, matrix_2.distances);
     }
 }

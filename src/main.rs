@@ -25,7 +25,12 @@ fn main() -> Result<()> {
     let trees: Vec<datastructures::PhyloTree> = (0..args.num_trees)
         .map(|_| -> Result<datastructures::PhyloTree> {
             let mut distance_matrix = distance_matrix.clone();
-            distance_matrix.perturb(&mut rng, &distribution, args.noise_ratio);
+            distance_matrix.perturb(
+                &mut rng,
+                &distribution,
+                args.noise_ratio,
+                args.single_noise,
+            );
             nj::nj(distance_matrix, args.strategy, args.seed, args.percentile)
         })
         .filter_map(Result::ok)
