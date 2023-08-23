@@ -2,6 +2,7 @@ use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use itertools::Itertools;
 use log::{debug, info};
+use rayon::prelude::*;
 
 use crate::datastructures::{Data, Metadata, Tool};
 
@@ -28,8 +29,8 @@ fn main() -> Result<()> {
             let config: Data = serde_json::from_str(&config_str)?;
             config
                 .datasets
-                .values()
-                .map(|d| {
+                .par_iter()
+                .map(|(_, d)| {
                     info!(
                         "Processing dataset {}",
                         d.sequence_file.clone().display()
