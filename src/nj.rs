@@ -3,8 +3,6 @@ use anyhow::Result;
 use itertools::Itertools;
 use ordered_float::NotNan;
 use rand::{seq::IteratorRandom, seq::SliceRandom};
-use rand_xoshiro::rand_core::SeedableRng;
-use rand_xoshiro::Xoshiro256PlusPlus;
 
 use crate::datastructures::{DistanceMatrix, PhyloTree};
 
@@ -84,7 +82,7 @@ where
     (i, j)
 }
 
-#[derive(Copy, Clone, clap::ValueEnum)]
+#[derive(Copy, Clone, clap::ValueEnum, PartialEq)]
 pub enum RandomizationStrategy {
     WeightedSelection,
     ThresholdBasedRandomization,
@@ -96,7 +94,7 @@ pub enum RandomizationStrategy {
 pub fn nj(
     mut distance_matrix: DistanceMatrix,
     strategy: RandomizationStrategy,
-    seed: u64,
+    rng: &mut impl rand::Rng,
     percentile: f64,
 ) -> Result<PhyloTree> {
     let n = distance_matrix.num_taxa();
@@ -128,16 +126,15 @@ pub fn nj(
                 )
             }
         };
-        let mut rng = Xoshiro256PlusPlus::seed_from_u64(seed);
         let (i, j) = match strategy {
             RandomizationStrategy::WeightedSelection => {
-                weighted_min_pos(&active, q, &mut rng)
+                weighted_min_pos(&active, q, rng)
             }
             RandomizationStrategy::ThresholdBasedRandomization => {
-                random_min_by_threshold(&active, q, &mut rng, percentile)
+                random_min_by_threshold(&active, q, rng, percentile)
             }
             RandomizationStrategy::RandomSampling => {
-                min_from_sample(&active, q, &mut rng, percentile)
+                min_from_sample(&active, q, rng, percentile)
             }
             RandomizationStrategy::Deterministic => {
                 deterministic_min(&active, q)
@@ -187,6 +184,8 @@ mod tests {
     use std::str::FromStr;
 
     use crate::datastructures::DistanceMatrix;
+    use rand_xoshiro::rand_core::SeedableRng;
+    use rand_xoshiro::Xoroshiro128PlusPlus;
 
     use super::nj;
 
@@ -198,9 +197,14 @@ mod tests {
                            taxon2 21.0 12.0 0.0 14.0
                            taxon3 27.0 18.0 14.0 0.0";
         let matrix = DistanceMatrix::from_str(raw_matrix).unwrap();
-        let result =
-            nj(matrix, super::RandomizationStrategy::Deterministic, 0, 0.0)
-                .unwrap();
+        let mut rng = Xoroshiro128PlusPlus::seed_from_u64(0);
+        let result = nj(
+            matrix,
+            super::RandomizationStrategy::Deterministic,
+            &mut rng,
+            0.0,
+        )
+        .unwrap();
         assert_eq!(
             result.to_string(),
             "((taxon0:13,taxon1:4):4,taxon2:4,taxon3:10);"
@@ -216,9 +220,14 @@ mod tests {
                            taxon3 9.0 10.0 8.0 0.0 3.0
                            taxon4 8.0 9.0 7.0 3.0 0.0";
         let matrix = DistanceMatrix::from_str(raw_matrix).unwrap();
-        let result =
-            nj(matrix, super::RandomizationStrategy::Deterministic, 0, 0.0)
-                .unwrap();
+        let mut rng = Xoroshiro128PlusPlus::seed_from_u64(0);
+        let result = nj(
+            matrix,
+            super::RandomizationStrategy::Deterministic,
+            &mut rng,
+            0.0,
+        )
+        .unwrap();
         assert_eq!(
             result.to_string(),
             "(((taxon0:2,taxon1:3):3,taxon2:4):2,taxon3:2,taxon4:1);"

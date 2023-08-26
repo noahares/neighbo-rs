@@ -60,26 +60,34 @@ impl DistanceMatrix {
     #[time("info")]
     #[inline]
     pub fn perturb(
-        &mut self,
+        &self,
         rng: &mut impl rand::Rng,
         distribution: &impl rand::distributions::Distribution<f64>,
         ratio: f64,
         common_noise: bool,
-    ) {
+    ) -> Self {
         let single_noise = if common_noise {
-            distribution.sample(rng).abs()
+            std::f64::consts::E.powf(distribution.sample(rng))
         } else {
             0.0
         };
-        self.distances.iter_mut().for_each(|i| {
-            if *i > 0.0 && (ratio == 1.0 || rng.gen_bool(ratio)) {
-                *i *= if common_noise {
-                    single_noise
-                } else {
-                    distribution.sample(rng).abs()
-                }
-            }
-        });
+        Self::new(
+            self.labels.clone(),
+            self.distances
+                .iter()
+                .map(|i| {
+                    if rng.gen::<f64>() <= ratio {
+                        i * if common_noise {
+                            single_noise
+                        } else {
+                            std::f64::consts::E.powf(distribution.sample(rng))
+                        }
+                    } else {
+                        *i
+                    }
+                })
+                .collect(),
+        )
     }
 
     #[inline(always)]
@@ -199,10 +207,9 @@ mod tests {
                            taxon2 2.0 1.0 0.0 1.0
                            taxon3 3.0 2.0 1.0 0.0";
         let matrix = DistanceMatrix::from_str(raw_matrix).unwrap();
-        let mut matrix_2 = matrix.clone();
         let mut rng = Xoroshiro128PlusPlus::seed_from_u64(0);
-        let distribution = rand_distr::Normal::new(1.0, 0.0).unwrap();
-        matrix_2.perturb(&mut rng, &distribution, 1.0, false);
+        let distribution = rand_distr::Normal::new(0.0, 0.0).unwrap();
+        let matrix_2 = matrix.perturb(&mut rng, &distribution, 1.0, false);
         assert_eq!(matrix.distances, matrix_2.distances);
     }
 }
