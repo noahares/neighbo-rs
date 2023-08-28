@@ -66,6 +66,8 @@ pub struct Metrics {
     num_trees: Option<usize>,
     perturbation: Option<f64>,
     ratio: Option<f64>,
+    strategy: Option<String>,
+    percentile: Option<f64>,
     reference_tool: String,
     tool: String,
     #[serde(rename = "reference_missed_splits_ratio")]
@@ -119,6 +121,8 @@ impl
             num_trees: meta.num_trees,
             perturbation: meta.perturbation,
             ratio: meta.ratio,
+            strategy: meta.strategy,
+            percentile: meta.percentile,
             reference_tool: meta.reference_tool,
             tool: meta.tool,
             missed_splits_ratio,

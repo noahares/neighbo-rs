@@ -64,6 +64,8 @@ pub struct Tool {
     pub time: f64,
     pub perturbation: Option<f64>,
     pub ratio: Option<f64>,
+    pub strategy: Option<String>,
+    pub percentile: Option<f64>,
 }
 
 impl TryFrom<PathBuf> for Tool {
@@ -83,6 +85,8 @@ impl TryFrom<PathBuf> for Tool {
             time: 0.0,
             perturbation: None,
             ratio: None,
+            strategy: None,
+            percentile: None,
         })
     }
 }
@@ -96,6 +100,8 @@ pub struct Metadata {
     pub num_trees: Option<usize>,
     pub perturbation: Option<f64>,
     pub ratio: Option<f64>,
+    pub strategy: Option<String>,
+    pub percentile: Option<f64>,
     pub reference_tool: String,
     pub tool: String,
 }
@@ -110,6 +116,8 @@ impl From<(&DataSet, &Tool)> for Metadata {
             num_trees: Some(d.num_trees),
             perturbation: t.perturbation,
             ratio: t.ratio,
+            strategy: t.strategy.clone(),
+            percentile: t.percentile,
             reference_tool: d.reference_tool.name.clone(),
             tool: t.name.clone(),
         }
