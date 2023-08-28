@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use bitvec::prelude::*;
 use itertools::Itertools;
 use logging_timer::time;
@@ -57,8 +57,8 @@ impl<'a, 'b> NewickParser<'a, 'b> {
         }
     }
 
-    pub fn parse(&mut self) -> Vec<BitVec> {
-        self.parse_tree();
+    pub fn parse(mut self) -> Vec<BitVec> {
+        self.parse_tree().unwrap_or_else(|e| panic!("{}", e));
         debug_assert_eq!(
             self.num_taxa - 3,
             self.bipartitions
@@ -69,25 +69,24 @@ impl<'a, 'b> NewickParser<'a, 'b> {
         );
         debug_assert!(self.bipartitions.iter().all(|b| b[0]));
         self.bipartitions
-            .clone()
             .into_iter()
             .filter(Self::is_inner_bipartition)
             .collect_vec()
     }
 
-    fn parse_tree(&mut self) -> BitVec {
+    fn parse_tree(&mut self) -> Result<BitVec> {
         if let Some(token) = self.tokenizer.next() {
             match token {
                 Token::OpenParen => {
-                    let left_child = self.parse_tree();
+                    let left_child = self.parse_tree()?;
                     self.tokenizer.expect_token(Token::Comma);
-                    let right_child = self.parse_tree();
+                    let right_child = self.parse_tree()?;
                     if self.tokenizer.next() == Some(Token::Comma) {
-                        let third_child = self.parse_tree();
+                        let third_child = self.parse_tree()?;
                         let extra_combined_bitset_1 =
-                            left_child.clone().bitor(&third_child);
+                            third_child.clone().bitor(&left_child);
                         let extra_combined_bitset_2 =
-                            right_child.clone().bitor(&third_child);
+                            third_child.bitor(&right_child);
                         self.insert_bipartition_normalized(
                             extra_combined_bitset_1,
                         );
@@ -99,18 +98,13 @@ impl<'a, 'b> NewickParser<'a, 'b> {
                     self.insert_bipartition_normalized(
                         combined_bitset.clone(),
                     );
-                    combined_bitset
+                    Ok(combined_bitset)
                 }
-                Token::Taxon(name) => {
-                    self.mapping[&name].clone()
-                    // do not need to add trivial partitions, as long as we know the number of taxa
-                    // self.bipartitions.push(bitset.clone());
-                    // bitset.to_owned()
-                }
-                _ => panic!("Unexpected token: {:?}", token),
+                Token::Taxon(name) => Ok(self.mapping[&name].clone()),
+                _ => bail!(format!("Unexpected token: {:?}", token)),
             }
         } else {
-            panic!("Unexpected end of string")
+            bail!("Unexpected end of string")
         }
     }
 

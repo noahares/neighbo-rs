@@ -200,9 +200,9 @@ impl MetricsData {
         chain_index_a: usize,
         chain_index_b: usize,
     ) -> Result<(f64, usize, (f64, f64))> {
-        let bipartition_sets: Vec<HashSet<BitVec>> = [
-            self.bipartitions_per_chain[chain_index_a].clone(),
-            self.bipartitions_per_chain[chain_index_b].clone(),
+        let bipartition_sets: Vec<HashSet<&BitVec>> = [
+            self.bipartitions_per_chain[chain_index_a].iter(),
+            self.bipartitions_per_chain[chain_index_b].iter(),
         ]
         .into_iter()
         .map(HashSet::from_iter)
