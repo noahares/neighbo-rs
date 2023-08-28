@@ -122,32 +122,32 @@ impl FromStr for DistanceMatrix {
 }
 
 pub struct PhyloTree {
-    name: String,
+    name: Option<String>,
     children: Vec<(PhyloTree, Option<f64>)>,
 }
 
 impl PhyloTree {
-    fn new(name: &str, children: Vec<(Self, Option<f64>)>) -> Self {
+    fn new(name: Option<&str>, children: Vec<(Self, Option<f64>)>) -> Self {
         Self {
-            name: name.to_string(),
+            name: name.map(|n| n.to_string()),
             children,
         }
     }
 
     pub fn new_leaf(name: &str) -> Self {
-        Self::new(name, vec![])
+        Self::new(Some(name), vec![])
     }
 
-    pub fn join(name: &str, nodes: Vec<(Self, f64)>) -> Self {
+    pub fn join(nodes: Vec<(Self, f64)>) -> Self {
         Self::new(
-            name,
+            None,
             nodes.into_iter().map(|(t, d)| (t, Some(d))).collect_vec(),
         )
     }
 
     fn to_string_impl(&self) -> String {
         if self.children.is_empty() {
-            self.name.to_string()
+            self.name.clone().unwrap()
         } else {
             "(".to_string()
                 + &self
@@ -164,7 +164,6 @@ impl PhyloTree {
                     .collect::<Vec<String>>()
                     .join(",")
                 + ")"
-                + &self.name
         }
     }
 }

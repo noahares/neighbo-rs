@@ -150,13 +150,10 @@ pub fn nj(
             distance_matrix.update(i, j, k);
         });
 
-        trees[i] = Some(PhyloTree::join(
-            "",
-            vec![
-                (trees[i].take().unwrap(), d_i),
-                (trees[j].take().unwrap(), d_j),
-            ],
-        ));
+        trees[i] = Some(PhyloTree::join(vec![
+            (trees[i].take().unwrap(), d_i),
+            (trees[j].take().unwrap(), d_j),
+        ]));
     }
 
     // finalize remaining 3 nodes
@@ -167,14 +164,11 @@ pub fn nj(
             / 2.;
         let d_j = distance_matrix.get_lt(i, j) - d_i;
         let d_k = distance_matrix.get_lt(i, k) - d_i;
-        trees[i] = Some(PhyloTree::join(
-            "",
-            vec![
-                (trees[i].take().unwrap(), d_i),
-                (trees[j].take().unwrap(), d_j),
-                (trees[k].take().unwrap(), d_k),
-            ],
-        ))
+        trees[i] = Some(PhyloTree::join(vec![
+            (trees[i].take().unwrap(), d_i),
+            (trees[j].take().unwrap(), d_j),
+            (trees[k].take().unwrap(), d_k),
+        ]))
     }
     Ok(trees[0].take().unwrap())
 }
