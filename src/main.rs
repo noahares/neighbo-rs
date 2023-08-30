@@ -8,6 +8,7 @@ use rand_xoshiro::Xoshiro256PlusPlus;
 mod datastructures;
 mod io;
 mod nj;
+mod distance_distribution;
 
 fn main() -> Result<()> {
     let args = io::Args::parse();
