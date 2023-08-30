@@ -5,6 +5,9 @@ use log::warn;
 use rand_xoshiro::rand_core::SeedableRng;
 use rand_xoshiro::Xoshiro256PlusPlus;
 
+#[macro_use]
+extern crate assert_float_eq;
+
 mod datastructures;
 mod io;
 mod nj;

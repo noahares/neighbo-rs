@@ -11,7 +11,7 @@ pub struct DistanceMatrix {
 }
 
 impl DistanceMatrix {
-    fn new(labels: Vec<String>, distances: Vec<f64>) -> Self {
+    pub fn new(labels: Vec<String>, distances: Vec<f64>) -> Self {
         Self { labels, distances }
     }
 
