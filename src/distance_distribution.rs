@@ -1,6 +1,11 @@
 use anyhow::{bail, Context, Result};
 use itertools::{Either, Itertools};
+use log::{debug, info};
+use logging_timer::time;
 use rand::seq::SliceRandom;
+use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
+use rayon::prelude::*;
 use regex::Regex;
 use std::{
     collections::HashMap,
@@ -111,10 +116,55 @@ impl FromStr for Moltype {
                 )
             }
         } else {
-            bail!(
-                "Rates and frequencies could not be parsed from string {}",
-                s
-            )
+            info!("No model parameters found, assuming LG");
+            Ok(Moltype::Protein {
+                rates: [
+                    0.425093, 0.276818, 0.395144, 2.489084, 0.969894,
+                    1.038545, 2.066040, 0.358858, 0.149830, 0.395337,
+                    0.536518, 1.124035, 0.253701, 1.177651, 4.727182,
+                    2.139501, 0.180717, 0.218959, 2.547870, 0.751878,
+                    0.123954, 0.534551, 2.807908, 0.363970, 0.390192,
+                    2.426601, 0.126991, 0.301848, 6.326067, 0.484133,
+                    0.052722, 0.332533, 0.858151, 0.578987, 0.593607,
+                    0.314440, 0.170887, 5.076149, 0.528768, 1.695752,
+                    0.541712, 1.437645, 4.509238, 0.191503, 0.068427,
+                    2.145078, 0.371004, 0.089525, 0.161787, 4.008358,
+                    2.000679, 0.045376, 0.612025, 0.083688, 0.062556,
+                    0.523386, 5.243870, 0.844926, 0.927114, 0.010690,
+                    0.015076, 0.282959, 0.025548, 0.017416, 0.394456,
+                    1.240275, 0.425860, 0.029890, 0.135107, 0.037967,
+                    0.084808, 0.003499, 0.569265, 0.640543, 0.320627,
+                    0.594007, 0.013266, 0.893680, 1.105251, 0.075382,
+                    2.784478, 1.143480, 0.670128, 1.165532, 1.959291,
+                    4.128591, 0.267959, 4.813505, 0.072854, 0.582457,
+                    3.234294, 1.672569, 0.035855, 0.624294, 1.223828,
+                    1.080136, 0.236199, 0.257336, 0.210332, 0.348847,
+                    0.423881, 0.044265, 0.069673, 1.807177, 0.173735,
+                    0.018811, 0.419409, 0.611973, 0.604545, 0.077852,
+                    0.120037, 0.245034, 0.311484, 0.008705, 0.044261,
+                    0.296636, 0.139538, 0.089586, 0.196961, 1.739990,
+                    0.129836, 0.268491, 0.054679, 0.076701, 0.108882,
+                    0.366317, 0.697264, 0.442472, 0.682139, 0.508851,
+                    0.990012, 0.584262, 0.597054, 5.306834, 0.119013,
+                    4.145067, 0.159069, 4.273607, 1.112727, 0.078281,
+                    0.064105, 1.033739, 0.111660, 0.232523, 10.649107,
+                    0.137500, 6.312358, 2.592692, 0.249060, 0.182287,
+                    0.302936, 0.619632, 0.299648, 1.702745, 0.656604,
+                    0.023918, 0.390322, 0.748683, 1.136863, 0.049906,
+                    0.131932, 0.185202, 1.798853, 0.099849, 0.346960,
+                    2.020366, 0.696175, 0.481306, 1.898718, 0.094464,
+                    0.361819, 0.165001, 2.457121, 7.803902, 0.654683,
+                    1.338132, 0.571468, 0.095131, 0.089613, 0.296501,
+                    6.472279, 0.248862, 0.400547, 0.098369, 0.140825,
+                    0.245841, 2.188158, 3.151815, 0.189510, 0.249313,
+                ],
+                frequencies: [
+                    0.079066, 0.055941, 0.041977, 0.053052, 0.012937,
+                    0.040767, 0.071586, 0.057337, 0.022355, 0.062157,
+                    0.099081, 0.064600, 0.022951, 0.042302, 0.044040,
+                    0.061197, 0.053287, 0.012066, 0.034155, 0.069147,
+                ],
+            })
         }
     }
 }
@@ -146,6 +196,7 @@ impl Moltype {
     }
 }
 
+#[derive(Debug)]
 pub struct MsaData {
     labels: Vec<String>,
     msa: Vec<Vec<usize>>,
@@ -184,6 +235,7 @@ impl MsaData {
         })
     }
 
+    #[time("debug")]
     pub fn sample_distance(
         &self,
         sequences: (usize, usize),
@@ -195,12 +247,14 @@ impl MsaData {
     ) -> Vec<f64> {
         let mut samples = Vec::with_capacity(n_samples);
         samples.push(x_0);
-        let mut last_likelihood = 1e-7;
+        let mut last_likelihood = std::f64::NEG_INFINITY;
+        let mut total_num_samples = 0;
 
         while samples.len() < n_samples + burnin {
+            total_num_samples += 1;
             // divide proposed branch length by 2 because we introduce a virtual root in the middle
             let proposed_sample =
-                distance_prior_distribution.sample(rng) / 2_f64;
+                distance_prior_distribution.sample(rng) / 2.0;
 
             let new_likelihood = branch_likelihood(
                 &self.msa[sequences.0],
@@ -209,12 +263,15 @@ impl MsaData {
                 &p_t(&self.u, &self.d, proposed_sample),
             );
 
-            if rng.gen::<f64>() < new_likelihood / last_likelihood {
+            if rng.gen::<f64>().ln() < new_likelihood - last_likelihood {
                 last_likelihood = new_likelihood;
                 samples.push(proposed_sample);
             }
         }
-
+        debug!(
+            "Total samples: {}, burnin: {}, taken: {}",
+            total_num_samples, burnin, n_samples
+        );
         samples[burnin..].to_vec()
     }
 }
@@ -231,27 +288,38 @@ impl DistanceMatrixSamples {
             .iter()
             .map(|s| s.choose(rng).context("No samples available").cloned())
             .collect::<Result<Vec<f64>>>()?;
+        debug!("{:?}", distances);
         Ok(DistanceMatrix::new(self.labels.clone(), distances))
     }
 }
 
-pub fn generate_distance_matrix_samples(
+#[time("info")]
+pub fn generate_distance_matrix_samples<D>(
     msa_data: &MsaData,
-    distance_prior_distribution: &impl rand::distributions::Distribution<f64>,
-    rng: &mut impl rand::Rng,
+    distance_prior_distribution: &D,
+    seed: u64,
     x_0: f64,
     n_samples: usize,
     burnin: usize,
-) -> DistanceMatrixSamples {
+) -> DistanceMatrixSamples
+where
+    D: rand::distributions::Distribution<f64> + std::marker::Sync,
+{
     let dim = msa_data.labels.len();
-    let samples = (0..dim - 1)
+    let indices: Vec<(usize, usize)> = (0..dim - 1)
         .cartesian_product(1..dim)
         .filter(|&(i, j)| i < j)
+        .collect();
+    // TODO: use batches for less rng objects <noahares>
+    let samples = indices
+        .into_par_iter()
         .map(|(i, j)| {
+            let mut rng = ChaCha8Rng::seed_from_u64(seed);
+            rng.set_stream((i + j) as u64);
             msa_data.sample_distance(
                 (i, j),
                 distance_prior_distribution,
-                rng,
+                &mut rng,
                 x_0,
                 n_samples,
                 burnin,
@@ -298,16 +366,18 @@ fn branch_likelihood(
         .map(|(&a, &b)| {
             // if a or b is a gap, the site should not contribute to the likelihood
             if a == dim || b == dim {
-                1.0
+                1_f64.ln()
             } else {
                 priors
                     .iter()
                     .enumerate()
+                    // p_t * p_t = u * exp(dt) u^T * u * exp(dt) * u^T = u * exp(dt) * exp(dt) * u^T
                     .map(|(i, prior)| *prior * p_t[(i, a)] * p_t[(i, b)])
                     .sum::<f64>()
+                    .ln()
             }
         })
-        .product()
+        .sum()
 }
 
 fn decomposed_rate_matrix(
@@ -333,7 +403,9 @@ fn p_t(
     d: &DMatrix<f64>,
     branch_length: f64,
 ) -> DMatrix<f64> {
-    u * d.map_diagonal(|val| val.powf(branch_length)) * u.transpose()
+    u * DMatrix::from_diagonal(
+        &d.map_diagonal(|val| (val * branch_length).exp()),
+    ) * u.transpose()
 }
 
 #[cfg(test)]
@@ -341,9 +413,9 @@ mod tests {
     use itertools::Itertools;
     use nalgebra::DMatrix;
 
-    use crate::distance_distribution::normalize_msa;
+    use crate::distance_distribution::{branch_likelihood, normalize_msa};
 
-    use super::{decomposed_rate_matrix, Moltype};
+    use super::{decomposed_rate_matrix, p_t, Moltype};
 
     #[test]
     fn test_model_parser() {
@@ -396,9 +468,22 @@ mod tests {
             4,
             4,
             &[
-                0.294729, 5.002025, 5.265654, 3.291279, 5.002025, 0.253416,
-                1.648017, 8.361876, 5.265654, 1.648017, 0.175738, 1.000000,
-                3.291279, 8.361876, 1.000000, 0.276117,
+                -13.558957999999999,
+                5.002025,
+                5.265654,
+                3.291279,
+                5.002025,
+                -15.011918000000001,
+                1.648017,
+                8.361876,
+                5.265654,
+                1.648017,
+                -7.913671,
+                1.0,
+                3.291279,
+                8.361876,
+                1.0,
+                -12.653155,
             ],
         );
         let (u, d) = decomposed_rate_matrix(&rate_matrix);
@@ -440,5 +525,40 @@ mod tests {
                 vec![3, 4, 0, 1, 4, 0],
             ]
         )
+    }
+
+    #[test]
+    fn test_branch_likelihood() {
+        let rate_matrix = DMatrix::from_column_slice(
+            4,
+            4,
+            &[
+                -13.558957999999999,
+                5.002025,
+                5.265654,
+                3.291279,
+                5.002025,
+                -15.011918000000001,
+                1.648017,
+                8.361876,
+                5.265654,
+                1.648017,
+                -7.913671,
+                1.0,
+                3.291279,
+                8.361876,
+                1.0,
+                -12.653155,
+            ],
+        );
+        let (u, d) = decomposed_rate_matrix(&rate_matrix);
+        let p_t = p_t(&u, &d, 0.01);
+        let priors = [0.294729, 0.253416, 0.175738, 0.276117];
+        let sequence_a = vec![1, 0, 0, 1, 2, 0];
+        let sequence_b = vec![1, 0, 0, 3, 2, 0];
+        assert_float_absolute_eq!(
+            branch_likelihood(&sequence_a, &sequence_b, &priors, &p_t),
+            1.0
+        );
     }
 }

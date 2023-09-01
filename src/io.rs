@@ -21,9 +21,24 @@ pub struct Args {
     /// Path to the sequence file
     #[arg(short = 'i', long)]
     pub sequence_file: PathBuf,
+    /// Path to the sequence file
+    #[arg(short = 'a', long)]
+    pub model_file: PathBuf,
     /// Number of trees to generate
     #[arg(short = 't', long, default_value_t = 1)]
     pub num_trees: usize,
+    /// Number of distance samples to generate
+    #[arg(long, default_value_t = 100)]
+    pub num_samples: usize,
+    /// Shape parameter for distance priors
+    #[arg(long = "shape", default_value_t = 1.0)]
+    pub distance_prior_shape: f64,
+    /// Rate parameter for distance priors
+    #[arg(long = "rate", default_value_t = 50.0)]
+    pub distance_prior_rate: f64,
+    /// Number of distance samples to discard as burnin
+    #[arg(short, long, default_value_t = 10)]
+    pub burnin: usize,
     /// stddev of noise as a multiplicative factor
     #[arg(short, long, default_value_t = 0.2, value_parser = normalized_ratio)]
     pub noise: f64,
