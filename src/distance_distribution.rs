@@ -32,7 +32,7 @@ pub enum Moltype {
         frequencies: [f64; 4],
     },
     Protein {
-        rates: [f64; 190],
+        rates: Box<[f64; 190]>,
         frequencies: [f64; 20],
     },
 }
@@ -41,7 +41,7 @@ impl SubstitutionModel for Moltype {
     fn get_rates(&self) -> &[f64] {
         match self {
             Moltype::Dna { rates, .. } => rates,
-            Moltype::Protein { rates, .. } => rates,
+            Moltype::Protein { rates, .. } => rates.as_ref(),
         }
     }
 
@@ -106,7 +106,7 @@ impl FromStr for Moltype {
                 frequencies_array.copy_from_slice(&frequencies);
 
                 Ok(Moltype::Protein {
-                    rates: rates_array,
+                    rates: Box::new(rates_array),
                     frequencies: frequencies_array,
                 })
             } else {
@@ -118,7 +118,7 @@ impl FromStr for Moltype {
         } else {
             info!("No model parameters found, assuming LG");
             Ok(Moltype::Protein {
-                rates: [
+                rates: Box::new([
                     0.425093, 0.276818, 0.395144, 2.489084, 0.969894,
                     1.038545, 2.066040, 0.358858, 0.149830, 0.395337,
                     0.536518, 1.124035, 0.253701, 1.177651, 4.727182,
@@ -157,7 +157,7 @@ impl FromStr for Moltype {
                     1.338132, 0.571468, 0.095131, 0.089613, 0.296501,
                     6.472279, 0.248862, 0.400547, 0.098369, 0.140825,
                     0.245841, 2.188158, 3.151815, 0.189510, 0.249313,
-                ],
+                ]),
                 frequencies: [
                     0.079066, 0.055941, 0.041977, 0.053052, 0.012937,
                     0.040767, 0.071586, 0.057337, 0.022355, 0.062157,
@@ -206,7 +206,10 @@ pub struct MsaData {
 }
 
 impl MsaData {
-    pub fn new(sequence_path: &PathBuf, model_path: &PathBuf) -> Result<Self> {
+    pub fn new(
+        sequence_path: &PathBuf,
+        model_path: &Option<PathBuf>,
+    ) -> Result<Self> {
         let phylip_file = File::open(sequence_path)?;
         let (labels, sequences): (Vec<String>, Vec<String>) =
             BufReader::new(phylip_file)
@@ -220,9 +223,14 @@ impl MsaData {
                         Either::Right(l.trim().to_string())
                     }
                 });
-        let model_file = File::open(model_path)?;
         let mut model_string = String::default();
-        BufReader::new(model_file).read_line(&mut model_string)?;
+        match model_path {
+            Some(p) => {
+                let model_file = File::open(p)?;
+                BufReader::new(model_file).read_line(&mut model_string)?;
+            }
+            None => (),
+        }
         let moltype: Moltype = model_string.parse()?;
         let rate_matrix = moltype.to_matrix();
         let (u, d) = decomposed_rate_matrix(&rate_matrix);

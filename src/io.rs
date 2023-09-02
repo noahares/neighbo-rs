@@ -23,7 +23,7 @@ pub struct Args {
     pub sequence_file: PathBuf,
     /// Path to the sequence file
     #[arg(short = 'a', long)]
-    pub model_file: PathBuf,
+    pub model_file: Option<PathBuf>,
     /// Number of trees to generate
     #[arg(short = 't', long, default_value_t = 1)]
     pub num_trees: usize,
