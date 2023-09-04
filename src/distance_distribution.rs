@@ -214,7 +214,7 @@ impl MsaData {
         let (labels, sequences): (Vec<String>, Vec<String>) =
             BufReader::new(phylip_file)
                 .lines()
-                .filter_ok(|l| !l.is_empty())
+                .filter_ok(|l| !l.trim().is_empty())
                 .filter_map(Result::ok)
                 .partition_map(|l| {
                     if l.starts_with('>') {
@@ -319,7 +319,7 @@ where
         .filter(|&(i, j)| i < j)
         .collect();
     // TODO: use batches for less rng objects <noahares>
-    let samples = indices
+    let samples: Vec<Vec<f64>> = indices
         .into_par_iter()
         .map(|(i, j)| {
             let mut rng = ChaCha8Rng::seed_from_u64(seed);
@@ -334,6 +334,7 @@ where
             )
         })
         .collect();
+    debug_assert_eq!(samples.len(), (dim * dim - dim) / 2);
     DistanceMatrixSamples {
         labels: msa_data.labels.clone(),
         samples,
