@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Result};
-use itertools::{Either, Itertools};
+use itertools::Itertools;
 use log::{debug, info};
 use logging_timer::time;
 use rand::seq::SliceRandom;
@@ -211,18 +211,38 @@ impl MsaData {
         model_path: &Option<PathBuf>,
     ) -> Result<Self> {
         let phylip_file = File::open(sequence_path)?;
-        let (labels, sequences): (Vec<String>, Vec<String>) =
-            BufReader::new(phylip_file)
+        let (labels, sequences): (Vec<String>, Vec<String>) = {
+            let lines: Vec<String> = BufReader::new(phylip_file)
                 .lines()
-                .filter_ok(|l| !l.trim().is_empty())
+                .map_ok(|l| l.trim().to_string())
+                .filter_ok(|l| !l.is_empty())
                 .filter_map(Result::ok)
-                .partition_map(|l| {
-                    if l.starts_with('>') {
-                        Either::Left(l.trim()[1..].to_string())
-                    } else {
-                        Either::Right(l.trim().to_string())
+                .collect();
+            let mut labels: Vec<String> = Vec::new();
+            let mut sequences: Vec<String> = Vec::new();
+            let mut current_sequence = String::new();
+            for line in lines {
+                if line.starts_with(';') {
+                    continue;
+                }
+                if let Some(label) = line.strip_prefix('>') {
+                    labels.push(label.to_string());
+                    if labels.len() > 1 {
+                        sequences.push(current_sequence);
+                        current_sequence = String::new();
                     }
-                });
+                } else {
+                    current_sequence.extend(
+                        line.chars()
+                            .filter(|c| c.is_alphabetic() || *c == '-'),
+                    );
+                }
+            }
+            sequences.push(current_sequence);
+            (labels, sequences)
+        };
+        assert_eq!(labels.len(), sequences.len());
+        assert!(sequences.iter().map(|s| s.len()).all_equal());
         let mut model_string = String::default();
         match model_path {
             Some(p) => {
