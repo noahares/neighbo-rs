@@ -141,9 +141,17 @@ pub fn nj(
             }
         };
         debug_assert!(i < j);
-        let d_i = distance_matrix.get_lt(i, j) / 2.
-            + (sum_d[i] - sum_d[j]) / (2. * (active.len() - 2) as f64);
-        let d_j = distance_matrix.get_lt(i, j) - d_i;
+        let (d_i, d_j) = {
+            let mut d_i = (distance_matrix.get_lt(i, j) / 2.
+                + (sum_d[i] - sum_d[j]) / (2. * (active.len() - 2) as f64)).max(0.0);
+            let mut d_j = distance_matrix.get_lt(i, j) - d_i;
+            if d_j < 0.0 {
+                d_i = (d_i + d_j).max(0.0);
+                d_j = 0.0;
+            }
+            (d_i, d_j)
+        };
+        debug_assert!(d_i >= 0.0 && d_j >= 0.0);
 
         active.remove(active.iter().position(|&x| x == j).unwrap());
         active.iter().filter(|&&k| k != i).for_each(|&k| {
@@ -158,12 +166,24 @@ pub fn nj(
 
     // finalize remaining 3 nodes
     if let [i, j, k] = active[..] {
-        let d_i = (distance_matrix.get_lt(i, j)
-            + distance_matrix.get_lt(i, k)
-            - distance_matrix.get_lt(j, k))
-            / 2.;
-        let d_j = distance_matrix.get_lt(i, j) - d_i;
-        let d_k = distance_matrix.get_lt(i, k) - d_i;
+        let (d_i, d_j, d_k) = {
+            let mut d_i = ((distance_matrix.get_lt(i, j)
+                + distance_matrix.get_lt(i, k)
+                - distance_matrix.get_lt(j, k))
+                / 2.).max(0.0);
+            let mut d_j = distance_matrix.get_lt(i, j) - d_i;
+            if d_j < 0.0 {
+                d_i = (d_i + d_j).max(0.0);
+                d_j = 0.0;
+            }
+            let mut d_k = distance_matrix.get_lt(i, k) - d_i;
+            if d_k < 0.0 {
+                d_i = (d_i + d_k).max(0.0);
+                d_k = 0.0;
+            }
+            (d_i, d_j, d_k)
+        };
+        debug_assert!(d_i >= 0.0 && d_j >= 0.0 && d_k >= 0.0);
         trees[i] = Some(PhyloTree::join(vec![
             (trees[i].take().unwrap(), d_i),
             (trees[j].take().unwrap(), d_j),
