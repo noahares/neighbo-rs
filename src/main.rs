@@ -80,7 +80,11 @@ fn main() -> Result<()> {
                 let distance_matrix = if i == 0 {
                     sample_matrix.ml_distances()
                 } else {
-                    sample_matrix.sample(&mut rng, args.noise_ratio)
+                    sample_matrix.sample(
+                        &mut rng,
+                        args.noise_ratio,
+                        args.noise,
+                    )
                 }?;
                 nj::nj(
                     distance_matrix,

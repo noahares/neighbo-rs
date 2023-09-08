@@ -1,11 +1,11 @@
 use anyhow::{bail, Context, Result};
-use itertools::Itertools;
+use itertools::{izip, Itertools};
 use log::{debug, info};
 use logging_timer::time;
 use plotpy::{Curve, Plot};
-use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
+use rand_distr::Distribution;
 use rayon::prelude::*;
 use regex::Regex;
 use std::{
@@ -329,19 +329,42 @@ impl DistanceMatrixSamples {
         &self,
         rng: &mut impl rand::Rng,
         ratio: f64,
+        stddev_scale: f64,
     ) -> Result<DistanceMatrix> {
-        let distances: Vec<f64> = self
+        let means: Vec<f64> = self
             .samples
             .iter()
             .map(|s| {
-                Ok(if ratio > rng.gen() {
-                    s.choose(rng)
+                if !s.is_empty() {
+                    Ok(s.iter()
+                        .map(|sample| sample.branch_length)
+                        .sum::<f64>()
+                        / s.len() as f64)
                 } else {
-                    s.first()
+                    bail!("No samples available")
                 }
-                .context("No samples available")
-                .cloned()?
-                .branch_length)
+            })
+            .collect::<Result<Vec<f64>>>()?;
+        let stddevs: Vec<f64> = self
+            .samples
+            .iter()
+            .zip_eq(means.iter())
+            .map(|(s, m)| {
+                (s.iter().map(|v| (m - v.branch_length).powi(2)).sum::<f64>()
+                    / s.len() as f64)
+                    .sqrt()
+                    * stddev_scale
+            })
+            .collect();
+        let distances: Vec<f64> = izip!(self.samples.iter(), means.iter(), stddevs.iter())
+            .map(|(samples, mean, stddev)| {
+                Ok(if ratio > rng.gen() {
+                    let d = rand_distr::Normal::new(*mean, *stddev)?;
+                    debug!("Sampling from Normal Distribution with mean: {}, stddev: {}", mean, stddev);
+                    d.sample(rng)
+                } else {
+                    samples.first().unwrap().branch_length
+                })
             })
             .collect::<Result<Vec<f64>>>()?;
         debug!("{:?}", distances);
