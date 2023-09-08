@@ -330,11 +330,26 @@ impl DistanceMatrixSamples {
         rng: &mut impl rand::Rng,
         ratio: f64,
     ) -> Result<DistanceMatrix> {
-        let distances: Vec<f64> = self
+        let means: Vec<f64> = self
             .samples
             .iter()
             .map(|s| {
-                Ok(if ratio > rng.gen() {
+                s.iter().map(|sample| sample.branch_length).sum::<f64>()
+                    / s.len() as f64
+            })
+            .collect();
+        let max_of_means: f64 = *means
+            .iter()
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .context("Sampling error")?;
+        let mean_weights: Vec<f64> =
+            means.into_iter().map(|m| m / max_of_means).collect();
+        let distances: Vec<f64> = self
+            .samples
+            .iter()
+            .zip_eq(mean_weights.iter())
+            .map(|(s, m)| {
+                Ok(if ratio * m > rng.gen() {
                     s.choose(rng)
                 } else {
                     s.first()
