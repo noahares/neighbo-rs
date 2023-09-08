@@ -171,11 +171,6 @@ impl FromStr for Moltype {
 }
 
 impl Moltype {
-    #[inline]
-    fn index_from_row_and_col_lt(i: usize, j: usize, n: usize) -> usize {
-        (i * n) - (i * (i + 3) / 2) + (j - 1)
-    }
-
     pub fn to_matrix(&self) -> DMatrix<f64> {
         let dim = self.get_rate_matrix_dimension();
         let mut matrix = DMatrix::zeros(dim, dim);
@@ -183,7 +178,8 @@ impl Moltype {
         let rates = self.get_rates();
         for i in 0..dim - 1 {
             for j in (i + 1)..dim {
-                let rate = rates[Self::index_from_row_and_col_lt(i, j, dim)];
+                let rate = rates
+                    [DistanceMatrix::index_from_row_and_col_lt(i, j, dim)];
                 matrix[(i, j)] = rate;
                 matrix[(j, i)] = rate;
             }

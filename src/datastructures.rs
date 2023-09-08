@@ -23,7 +23,7 @@ impl DistanceMatrix {
 
     // optimised version if i < j is guaranteed
     #[inline]
-    fn index_from_row_and_col_lt(i: usize, j: usize, n: usize) -> usize {
+    pub fn index_from_row_and_col_lt(i: usize, j: usize, n: usize) -> usize {
         (i * n) - (i * (i + 3) / 2) + (j - 1)
     }
 
