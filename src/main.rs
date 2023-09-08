@@ -41,8 +41,12 @@ fn main() -> Result<()> {
         args.burnin,
     );
     let trees: Vec<datastructures::PhyloTree> = (0..args.num_trees)
-        .map(|_| -> Result<datastructures::PhyloTree> {
-            let distance_matrix = sample_matrix.sample(&mut rng)?;
+        .map(|i| -> Result<datastructures::PhyloTree> {
+            let distance_matrix = if i == 0 {
+                sample_matrix.ml_distances()
+            } else {
+                sample_matrix.sample(&mut rng, args.noise_ratio)
+            }?;
             nj::nj(distance_matrix, args.strategy, &mut rng, args.percentile)
         })
         .collect::<Result<Vec<datastructures::PhyloTree>>>()?;

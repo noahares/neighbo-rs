@@ -272,10 +272,13 @@ impl MsaData {
         x_0: f64,
         n_samples: usize,
         burnin: usize,
-    ) -> Vec<f64> {
+    ) -> Vec<DistributionSample> {
         let mut samples = Vec::with_capacity(n_samples);
-        samples.push(x_0);
         let mut last_likelihood = std::f64::NEG_INFINITY;
+        samples.push(DistributionSample {
+            branch_length: x_0,
+            likelihood: last_likelihood,
+        });
         let mut total_num_samples = 0;
 
         while samples.len() < n_samples + burnin {
@@ -293,28 +296,68 @@ impl MsaData {
 
             if rng.gen::<f64>().ln() < new_likelihood - last_likelihood {
                 last_likelihood = new_likelihood;
-                samples.push(proposed_sample);
+                samples.push(DistributionSample {
+                    branch_length: proposed_sample,
+                    likelihood: new_likelihood,
+                });
             }
         }
         debug!(
             "Total samples: {}, burnin: {}, taken: {}",
             total_num_samples, burnin, n_samples
         );
-        samples[burnin..].to_vec()
+        samples = samples[burnin..].to_vec();
+        samples
+            .sort_by(|a, b| b.likelihood.partial_cmp(&a.likelihood).unwrap());
+        samples
     }
+}
+
+#[derive(Clone)]
+pub struct DistributionSample {
+    branch_length: f64,
+    likelihood: f64,
 }
 
 pub struct DistanceMatrixSamples {
     labels: Vec<String>,
-    samples: Vec<Vec<f64>>,
+    samples: Vec<Vec<DistributionSample>>,
 }
 
 impl DistanceMatrixSamples {
-    pub fn sample(&self, rng: &mut impl rand::Rng) -> Result<DistanceMatrix> {
+    pub fn sample(
+        &self,
+        rng: &mut impl rand::Rng,
+        ratio: f64,
+    ) -> Result<DistanceMatrix> {
         let distances: Vec<f64> = self
             .samples
             .iter()
-            .map(|s| s.choose(rng).context("No samples available").cloned())
+            .map(|s| {
+                Ok(if ratio > rng.gen() {
+                    s.choose(rng)
+                } else {
+                    s.first()
+                }
+                .context("No samples available")
+                .cloned()?
+                .branch_length)
+            })
+            .collect::<Result<Vec<f64>>>()?;
+        debug!("{:?}", distances);
+        Ok(DistanceMatrix::new(self.labels.clone(), distances))
+    }
+
+    pub fn ml_distances(&self) -> Result<DistanceMatrix> {
+        let distances: Vec<f64> = self
+            .samples
+            .iter()
+            .map(|s| {
+                Ok(s.first()
+                    .context("No samples available")
+                    .cloned()?
+                    .branch_length)
+            })
             .collect::<Result<Vec<f64>>>()?;
         debug!("{:?}", distances);
         Ok(DistanceMatrix::new(self.labels.clone(), distances))
@@ -339,7 +382,7 @@ where
         .filter(|&(i, j)| i < j)
         .collect();
     // TODO: use batches for less rng objects <noahares>
-    let samples: Vec<Vec<f64>> = indices
+    let samples: Vec<Vec<DistributionSample>> = indices
         .into_par_iter()
         .map(|(i, j)| {
             let mut rng = ChaCha8Rng::seed_from_u64(seed);
@@ -391,11 +434,11 @@ fn branch_likelihood(
     let dim = priors.len();
     sequence_a
         .iter()
-        .zip(sequence_b.iter())
+        .zip_eq(sequence_b.iter())
         .map(|(&a, &b)| {
             // if a or b is a gap, the site should not contribute to the likelihood
             if a == dim || b == dim {
-                1_f64.ln()
+                0.0
             } else {
                 priors
                     .iter()
