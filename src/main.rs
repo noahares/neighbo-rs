@@ -40,6 +40,12 @@ fn main() -> Result<()> {
         args.num_samples,
         args.burnin,
     );
+    if let Some(distance_distribution_output_path) =
+        args.plot_distance_distribution.clone()
+    {
+        sample_matrix
+            .plot_distance_distribution(distance_distribution_output_path)?;
+    }
     let trees: Vec<datastructures::PhyloTree> = (0..args.num_trees)
         .map(|i| -> Result<datastructures::PhyloTree> {
             let distance_matrix = if i == 0 {

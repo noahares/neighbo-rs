@@ -21,7 +21,7 @@ pub struct Args {
     /// Path to the sequence file
     #[arg(short = 'i', long)]
     pub sequence_file: PathBuf,
-    /// Path to the sequence file
+    /// Path to the model file (output of raxml-ng)
     #[arg(short = 'a', long)]
     pub model_file: Option<PathBuf>,
     /// Number of trees to generate
@@ -36,13 +36,16 @@ pub struct Args {
     /// Rate parameter for distance priors
     #[arg(long = "rate", default_value_t = 50.0)]
     pub distance_prior_rate: f64,
+    /// plot distance distribution
+    #[arg(long = "plot")]
+    pub plot_distance_distribution: Option<PathBuf>,
     /// Number of distance samples to discard as burnin
     #[arg(short, long, default_value_t = 10)]
     pub burnin: usize,
     /// stddev of noise as a multiplicative factor
     #[arg(short, long, default_value_t = 0.2, value_parser = normalized_ratio)]
     pub noise: f64,
-    /// stddev of noise as a multiplicative factor
+    /// use same noise for all distances
     #[arg(long, default_value_t = false)]
     pub single_noise: bool,
     /// ratio of matrix entries that get perturbed in each iteration

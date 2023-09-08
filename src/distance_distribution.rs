@@ -2,6 +2,7 @@ use anyhow::{bail, Context, Result};
 use itertools::Itertools;
 use log::{debug, info};
 use logging_timer::time;
+use plotpy::{Curve, Plot};
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
@@ -361,6 +362,23 @@ impl DistanceMatrixSamples {
             .collect::<Result<Vec<f64>>>()?;
         debug!("{:?}", distances);
         Ok(DistanceMatrix::new(self.labels.clone(), distances))
+    }
+
+    pub fn plot_distance_distribution(&self, path: PathBuf) -> Result<()> {
+        let mut plot = Plot::new();
+        for samples in &self.samples {
+            let mut curve = Curve::new();
+            curve.set_line_width(1.0);
+            curve.points_begin();
+            for s in samples[0..80].iter() {
+                curve.points_add(s.branch_length, s.likelihood);
+            }
+            curve.points_end();
+            plot.add(&curve)
+                .grid_and_labels("branch length", "log likelihood");
+        }
+        plot.save(&path).unwrap();
+        Ok(())
     }
 }
 
