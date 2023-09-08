@@ -219,6 +219,9 @@ impl MsaData {
                 .filter_ok(|l| !l.is_empty())
                 .filter_map(Result::ok)
                 .collect();
+            if !lines[0].starts_with(['>', ';']) {
+                bail!("Not a valid FASTA file")
+            }
             let mut labels: Vec<String> = Vec::new();
             let mut sequences: Vec<String> = Vec::new();
             let mut current_sequence = String::new();
