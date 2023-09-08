@@ -143,7 +143,8 @@ pub fn nj(
         debug_assert!(i < j);
         let (d_i, d_j) = {
             let mut d_i = (distance_matrix.get_lt(i, j) / 2.
-                + (sum_d[i] - sum_d[j]) / (2. * (active.len() - 2) as f64)).max(0.0);
+                + (sum_d[i] - sum_d[j]) / (2. * (active.len() - 2) as f64))
+                .max(0.0);
             let mut d_j = distance_matrix.get_lt(i, j) - d_i;
             if d_j < 0.0 {
                 d_i = (d_i + d_j).max(0.0);
@@ -170,7 +171,8 @@ pub fn nj(
             let mut d_i = ((distance_matrix.get_lt(i, j)
                 + distance_matrix.get_lt(i, k)
                 - distance_matrix.get_lt(j, k))
-                / 2.).max(0.0);
+                / 2.)
+                .max(0.0);
             let mut d_j = distance_matrix.get_lt(i, j) - d_i;
             if d_j < 0.0 {
                 d_i = (d_i + d_j).max(0.0);
