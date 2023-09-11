@@ -480,15 +480,20 @@ fn branch_likelihood(
             if a == dim || b == dim {
                 0.0
             } else {
+                // simplified likelihood because only 2 taxa in the "tree"
+                //    Prior(A) AND evolved from A to a AND evolved from A to b
+                // or Prior(C) AND evolved from C to a AND evolved from C to b
+                // or Prior(G) AND evolved from G to a AND evolved from G to b
+                // or Prior(T) AND evolved from T to a AND evolved from T to b
                 priors
                     .iter()
                     .enumerate()
-                    // p_t * p_t = u * exp(dt) u^T * u * exp(dt) * u^T = u * exp(dt) * exp(dt) * u^T
                     .map(|(i, prior)| *prior * p_t[(i, a)] * p_t[(i, b)])
                     .sum::<f64>()
                     .ln()
             }
         })
+        // log likelihood -> sum
         .sum()
 }
 
@@ -572,6 +577,7 @@ mod tests {
                 .iter(),
             )
             .for_each(|(a, b)| assert_float_absolute_eq!(a, b));
+        assert_float_absolute_eq!(matrix.sum(), 0.0);
     }
 
     #[test]
@@ -645,32 +651,21 @@ mod tests {
             4,
             4,
             &[
-                -13.558957999999999,
-                5.002025,
-                5.265654,
-                3.291279,
-                5.002025,
-                -15.011918000000001,
-                1.648017,
-                8.361876,
-                5.265654,
-                1.648017,
-                -7.913671,
-                1.0,
-                3.291279,
-                8.361876,
-                1.0,
-                -12.653155,
+                -13.558958, 5.002025, 5.265654, 3.291279, 5.002025,
+                -15.011918, 1.648017, 8.361876, 5.265654, 1.648017, -7.913671,
+                1.0, 3.291279, 8.361876, 1.0, -12.653155,
             ],
         );
         let (u, d) = decomposed_rate_matrix(&rate_matrix);
-        let p_t = p_t(&u, &d, 0.01);
+        let p_t = p_t(&u, &d, 0.0);
+        assert!(p_t.is_identity(1e-7));
+        dbg!(&p_t);
         let priors = [0.294729, 0.253416, 0.175738, 0.276117];
-        let sequence_a = vec![1, 0, 0, 1, 2, 0];
-        let sequence_b = vec![1, 0, 0, 3, 2, 0];
+        let sequence_a = vec![1, 3, 2, 0];
+        let sequence_b = vec![1, 3, 2, 0];
         assert_float_absolute_eq!(
             branch_likelihood(&sequence_a, &sequence_b, &priors, &p_t),
-            1.0
+            priors.iter().product::<f64>().ln()
         );
     }
 }
