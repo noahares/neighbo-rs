@@ -56,7 +56,7 @@ fn main() -> Result<()> {
         MsaData::new(&args.sequence_file, &args.model_file)
     {
         info!("Found MSA. Running in distance distribution mode");
-        let scale = 1.0 / args.distance_prior_rate;
+        let scale = msa_data.average_pairwise_distance / args.distance_prior_shape;
         let distribution =
             rand_distr::Gamma::new(args.distance_prior_shape, scale)?;
         let x_0 = distribution.sample(&mut rng);

@@ -184,12 +184,14 @@ impl Moltype {
                 matrix[(j, i)] = rate;
             }
         }
-
+        let mut factor = 0.0;
         for i in 0..dim {
             matrix[(i, i)] = -matrix.row(i).sum();
+            factor += self.get_frequencies()[i] * matrix[(i, i)];
         }
+        info!("Factor = {}", factor);
 
-        matrix
+        matrix / -factor
     }
 }
 
@@ -200,6 +202,7 @@ pub struct MsaData {
     u: DMatrix<f64>,
     d: DMatrix<f64>,
     priors: Vec<f64>,
+    pub average_pairwise_distance: f64,
 }
 
 impl MsaData {
@@ -254,13 +257,54 @@ impl MsaData {
         let moltype: Moltype = model_string.parse()?;
         let rate_matrix = moltype.to_matrix();
         let (u, d) = decomposed_rate_matrix(&rate_matrix);
+        let msa = normalize_msa(&sequences, &moltype);
+        let average_pairwise_distance =
+            Self::average_pairwise_distance(&msa, &moltype);
+        info!("Average distance: {}", average_pairwise_distance);
         Ok(Self {
             labels,
-            msa: normalize_msa(&sequences, &moltype),
+            msa,
             u,
             d,
             priors: moltype.get_frequencies().to_vec(),
+            average_pairwise_distance,
         })
+    }
+
+    fn average_pairwise_distance(
+        msa: &[Vec<usize>],
+        moltype: &Moltype,
+    ) -> f64 {
+        let num_alignments = msa.len();
+        let gap = moltype.get_rate_matrix_dimension();
+        let indices: Vec<(usize, usize)> = (0..num_alignments - 1)
+            .cartesian_product(1..num_alignments)
+            .filter(|&(i, j)| i < j)
+            .collect();
+        indices
+            .iter()
+            .map(|(i, j)| {
+                let (distance, gaps) =
+                    msa[*i].iter().zip_eq(msa[*j].iter()).fold(
+                        (0, 0),
+                        |(dist, n_gaps): (usize, usize), (&a, &b)| {
+                            (
+                                (dist
+                                    + (a != gap && b != gap && a != b)
+                                        as usize),
+                                (n_gaps + (a == gap || b == gap) as usize),
+                            )
+                        },
+                    );
+                let valid_chars = msa[*i].len() - gaps;
+                if valid_chars == 0 {
+                    0.0
+                } else {
+                    distance as f64 / valid_chars as f64
+                }
+            })
+            .sum::<f64>()
+            / indices.len() as f64
     }
 
     #[time("debug")]
@@ -284,8 +328,7 @@ impl MsaData {
         while samples.len() < n_samples + burnin {
             total_num_samples += 1;
             // divide proposed branch length by 2 because we introduce a virtual root in the middle
-            let proposed_sample =
-                distance_prior_distribution.sample(rng) / 2.0;
+            let proposed_sample = distance_prior_distribution.sample(rng);
 
             let new_likelihood = branch_likelihood(
                 &self.msa[sequences.0],
@@ -356,17 +399,18 @@ impl DistanceMatrixSamples {
                     * stddev_scale
             })
             .collect();
-        let distances: Vec<f64> = izip!(self.samples.iter(), means.iter(), stddevs.iter())
-            .map(|(samples, mean, stddev)| {
-                Ok(if ratio > rng.gen() {
-                    let d = rand_distr::Normal::new(*mean, *stddev)?;
-                    debug!("Sampling from Normal Distribution with mean: {}, stddev: {}", mean, stddev);
-                    d.sample(rng)
-                } else {
-                    samples.first().unwrap().branch_length
+        let distances: Vec<f64> =
+            izip!(self.samples.iter(), means.iter(), stddevs.iter())
+                .map(|(samples, mean, stddev)| {
+                    Ok(if ratio > rng.gen() {
+                        let d = rand_distr::Normal::new(*mean, *stddev)?;
+                        debug!("Sampling from Normal Distribution with mean: {}, stddev: {}", mean, stddev);
+                        d.sample(rng)
+                    } else {
+                        samples.first().unwrap().branch_length
+                    })
                 })
-            })
-            .collect::<Result<Vec<f64>>>()?;
+                .collect::<Result<Vec<f64>>>()?;
         debug!("{:?}", distances);
         Ok(DistanceMatrix::new(self.labels.clone(), distances))
     }
@@ -480,17 +524,9 @@ fn branch_likelihood(
             if a == dim || b == dim {
                 0.0
             } else {
-                // simplified likelihood because only 2 taxa in the "tree"
-                //    Prior(A) AND evolved from A to a AND evolved from A to b
-                // or Prior(C) AND evolved from C to a AND evolved from C to b
-                // or Prior(G) AND evolved from G to a AND evolved from G to b
-                // or Prior(T) AND evolved from T to a AND evolved from T to b
-                priors
-                    .iter()
-                    .enumerate()
-                    .map(|(i, prior)| *prior * p_t[(i, a)] * p_t[(i, b)])
-                    .sum::<f64>()
-                    .ln()
+                // simplified likelihood because only 2 taxa in the "tree" and LG is time
+                // reversable
+                ((priors[a] + priors[b]) * p_t[(a, b)]).ln()
             }
         })
         // log likelihood -> sum
