@@ -33,9 +33,6 @@ pub struct Args {
     /// Shape parameter for distance priors
     #[arg(long = "shape", default_value_t = 1.0)]
     pub distance_prior_shape: f64,
-    /// Rate parameter for distance priors
-    #[arg(long = "rate", default_value_t = 50.0)]
-    pub distance_prior_rate: f64,
     /// plot distance distribution
     #[arg(long = "plot")]
     pub plot_distance_distribution: Option<PathBuf>,
@@ -51,6 +48,9 @@ pub struct Args {
     /// ratio of matrix entries that get perturbed in each iteration
     #[arg(short = 'r', long, default_value_t = 1.0, value_parser = normalized_ratio)]
     pub noise_ratio: f64,
+    /// use ML distances with percentage noise
+    #[arg(long = "percentage-noise", default_value_t = false)]
+    pub ml_with_percentage: bool,
     /// Strategy for randomizing the neighbor joining steps
     #[arg(short = 'm', long, default_value_t = RandomizationStrategy::Deterministic, value_enum)]
     pub strategy: RandomizationStrategy,

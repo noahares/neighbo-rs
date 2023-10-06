@@ -56,7 +56,8 @@ fn main() -> Result<()> {
         MsaData::new(&args.sequence_file, &args.model_file)
     {
         info!("Found MSA. Running in distance distribution mode");
-        let scale = msa_data.average_pairwise_distance / args.distance_prior_shape;
+        let scale =
+            msa_data.average_pairwise_distance / args.distance_prior_shape;
         let distribution =
             rand_distr::Gamma::new(args.distance_prior_shape, scale)?;
         let x_0 = distribution.sample(&mut rng);
@@ -75,10 +76,18 @@ fn main() -> Result<()> {
                 distance_distribution_output_path,
             )?;
         }
+        let noise_distribution = rand_distr::Normal::new(0.0, args.noise)?;
         (0..args.num_trees)
             .map(|i| -> Result<datastructures::PhyloTree> {
-                let distance_matrix = if i == 0 {
+                let distance_matrix = if i == 0 || args.noise_ratio == 0.0 {
                     sample_matrix.ml_distances()
+                } else if args.ml_with_percentage {
+                    Ok(sample_matrix.ml_distances()?.perturb(
+                        &mut rng,
+                        &noise_distribution,
+                        args.noise_ratio,
+                        args.single_noise,
+                    ))
                 } else {
                     sample_matrix.sample(
                         &mut rng,
