@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use clap::Parser;
 use itertools::Itertools;
-use log::{debug, info};
+use log::{debug, info, warn};
 use rayon::prelude::*;
 
 use crate::datastructures::{Data, Metadata, Tool};
@@ -29,8 +29,8 @@ fn main() -> Result<()> {
             let config: Data = serde_json::from_str(&config_str)?;
             config
                 .datasets
-                .par_iter()
-                .map(|(_, d)| {
+                .into_par_iter()
+                .filter_map(|(_, d)| {
                     info!(
                         "Processing dataset {}",
                         d.sequence_file.clone().display()
@@ -38,20 +38,27 @@ fn main() -> Result<()> {
                     let metadata = d
                         .tools
                         .iter()
-                        .map(|t| Metadata::from((d, t)))
+                        .map(|t| Metadata::from((&d, t)))
                         .collect_vec();
-                    metrics::evaulate_dataset(
+                    match metrics::evaluate_dataset(
                         d.reference_tree.clone(),
-                        d.reference_tool.clone(),
+                        &d.reference_tool,
                         &d.tools,
                         args.consensus_cutoff,
                         metadata,
-                    )
+                    ) {
+                        Ok(r) => Some(r),
+                        Err(..) => {
+                            warn!(
+                                "Failed to process dataset {}",
+                                d.sequence_file.clone().display()
+                            );
+                            None
+                        }
+                    }
                 })
-                .collect::<Result<Vec<Vec<io::Metrics>>>>()?
-                .into_iter()
                 .flatten()
-                .collect_vec()
+                .collect::<Vec<io::Metrics>>()
         } else {
             debug!("Running single evaluation with options from command line");
             let reference_tool = Tool::try_from(
@@ -74,9 +81,9 @@ fn main() -> Result<()> {
                             )
                         })
                         .collect_vec();
-                    metrics::evaulate_dataset(
+                    metrics::evaluate_dataset(
                         args.reference_tree.clone(),
-                        reference_tool.clone(),
+                        &reference_tool,
                         &tools,
                         args.consensus_cutoff,
                         metadata,

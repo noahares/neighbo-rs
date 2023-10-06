@@ -26,7 +26,7 @@ impl<'a, 'b> NewickParser<'a, 'b> {
         }
     }
 
-    #[time("info")]
+    #[time("debug")]
     pub fn get_taxa_mapping(input: &str) -> HashMap<String, BitVec> {
         let taxa_regex = Regex::new(r"[A-Za-z0-9_|]+").unwrap();
         let taxa: Vec<String> = taxa_regex

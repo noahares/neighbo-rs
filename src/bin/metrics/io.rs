@@ -71,11 +71,14 @@ pub struct Metrics {
     percentile: Option<f64>,
     reference_tool: String,
     tool: String,
-    #[serde(rename = "reference_missed_splits_ratio")]
-    missed_splits_ratio: Option<f64>,
-    min: Option<f64>,
-    mean: Option<f64>,
-    max: Option<f64>,
+    reference_missed_splits_ratio: Option<f64>,
+    reference_min: Option<f64>,
+    reference_mean: Option<f64>,
+    reference_max: Option<f64>,
+    tool_missed_splits_ratio: Option<f64>,
+    tool_min: Option<f64>,
+    tool_mean: Option<f64>,
+    tool_max: Option<f64>,
     simple_distance: f64,
     hellinger_distance: f64,
     asdsf: f64,
@@ -95,22 +98,33 @@ impl
     From<(
         Metadata,
         Option<crate::metrics::ReferenceTreeMetrics>,
+        Option<crate::metrics::ReferenceTreeMetrics>,
         crate::metrics::DistanceMetrics,
     )> for Metrics
 {
     fn from(
-        (meta, rtm, dm): (
+        (meta, rtm, ttm, dm): (
             Metadata,
+            Option<crate::metrics::ReferenceTreeMetrics>,
             Option<crate::metrics::ReferenceTreeMetrics>,
             crate::metrics::DistanceMetrics,
         ),
     ) -> Self {
-        let (missed_splits_ratio, min, mean, max) = match rtm {
+        let (missed_splits_ratio_r, min_r, mean_r, max_r) = match rtm {
             Some(rtm) => (
                 Some(rtm.missed_splits_ratio),
                 Some(rtm.rf_distance_stats.min),
                 Some(rtm.rf_distance_stats.mean),
                 Some(rtm.rf_distance_stats.max),
+            ),
+            None => (None, None, None, None),
+        };
+        let (missed_splits_ratio_t, min_t, mean_t, max_t) = match ttm {
+            Some(ttm) => (
+                Some(ttm.missed_splits_ratio),
+                Some(ttm.rf_distance_stats.min),
+                Some(ttm.rf_distance_stats.mean),
+                Some(ttm.rf_distance_stats.max),
             ),
             None => (None, None, None, None),
         };
@@ -127,10 +141,14 @@ impl
             percentile: meta.percentile,
             reference_tool: meta.reference_tool,
             tool: meta.tool,
-            missed_splits_ratio,
-            min,
-            mean,
-            max,
+            reference_missed_splits_ratio: missed_splits_ratio_r,
+            reference_min: min_r,
+            reference_mean: mean_r,
+            reference_max: max_r,
+            tool_missed_splits_ratio: missed_splits_ratio_t,
+            tool_min: min_t,
+            tool_mean: mean_t,
+            tool_max: max_t,
             simple_distance: dm.simple_distance,
             hellinger_distance: dm.hellinger_distance,
             asdsf: dm.asdsf,

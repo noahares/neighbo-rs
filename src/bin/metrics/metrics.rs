@@ -9,7 +9,7 @@ use std::{
 use anyhow::{Context, Result};
 use bitvec::vec::BitVec;
 use counter::Counter;
-use itertools::{Either, Itertools};
+use itertools::{izip, Either, Itertools};
 use logging_timer::{time, timer, Level};
 use ndarray::Array2;
 use ndarray_stats::CorrelationExt;
@@ -316,7 +316,7 @@ pub struct ReferenceTreeMetrics {
     pub rf_distance_stats: RFDistanceStats,
 }
 
-#[time("info")]
+#[time("debug")]
 pub fn compare_distribution_against_reference_tree(
     distribution_bipartitions: &[Vec<BitVec>],
     reference_tree_bipartitions: &[BitVec],
@@ -361,10 +361,10 @@ pub fn compare_distribution_against_reference_tree(
     })
 }
 
-#[time("info")]
-pub fn evaulate_dataset(
+#[time("debug")]
+pub fn evaluate_dataset(
     reference_path: Option<PathBuf>,
-    reference_tool: Tool,
+    reference_tool: &Tool,
     other_tools: &[Tool],
     cutoff: f64,
     metadata: Vec<Metadata>,
@@ -388,7 +388,7 @@ pub fn evaulate_dataset(
         (None, None)
     };
     let reference_distribution_file =
-        File::open(reference_tool.distribution_path)?;
+        File::open(reference_tool.distribution_path.clone())?;
     let lines: Vec<String> = BufReader::new(reference_distribution_file)
         .lines()
         .map_while(|l| parser::NewickParser::preprocess_input(l.ok()?).ok())
@@ -403,11 +403,11 @@ pub fn evaulate_dataset(
         .collect::<Result<Vec<Vec<BitVec>>>>()?;
 
     let reference_metrics = if let Some(bipartitions) =
-        reference_tree_bipartitions
+        &reference_tree_bipartitions
     {
         let reference_metrics = compare_distribution_against_reference_tree(
             &reference_distribution_bipartitions,
-            &bipartitions,
+            bipartitions,
         )?;
         Some(reference_metrics)
     } else {
@@ -422,9 +422,9 @@ pub fn evaulate_dataset(
 
     let bipartitions_per_chain = {
         let _tmr = timer!(Level::Info; "Parse distributions", "Parsed {} distributions", other_tools.len());
-        reference_distribution_bipartitions
-            .into_iter()
-            .chain(other_tools.iter().map(|t| {
+        other_tools
+            .iter()
+            .map(|t| {
                 let file = File::open(t.distribution_path.clone())
                     .expect("Failed to open file");
                 BufReader::new(file)
@@ -432,25 +432,50 @@ pub fn evaulate_dataset(
                     .map_while(|l| {
                         parser::NewickParser::preprocess_input(l.ok()?).ok()
                     })
-                    .flat_map(|l| {
-                        parser::NewickParser::new(&l, &mapping).parse()
-                    })
+                    .map(|l| parser::NewickParser::new(&l, &mapping).parse())
                     .collect_vec()
-            }))
+            })
             .collect_vec()
     };
+
+    let tool_reference_metrics = if let Some(bipartitions) =
+        reference_tree_bipartitions
+    {
+        bipartitions_per_chain
+            .iter()
+            .map(|b| {
+                compare_distribution_against_reference_tree(b, &bipartitions)
+                    .ok()
+            })
+            .collect()
+    } else {
+        vec![None; bipartitions_per_chain.len() - 1]
+    };
+
+    let bipartitions_per_chain = reference_distribution_bipartitions
+        .into_iter()
+        .chain(
+            bipartitions_per_chain
+                .into_iter()
+                .map(|c| c.into_iter().flatten().collect()),
+        )
+        .collect_vec();
     let metrics_data = MetricsData::new(&bipartitions_per_chain)?;
-    (1..bipartitions_per_chain.len())
-        .map(|i| metrics_data.distance_metrics(0, i, cutoff))
-        .zip(metadata.iter())
-        .map(|(m, meta)| -> Result<io::Metrics> {
-            Ok(io::Metrics::from((
-                meta.clone(),
-                reference_metrics.clone(),
-                m?.clone(),
-            )))
-        })
-        .collect::<Result<Vec<io::Metrics>>>()
+    izip!(
+        (1..bipartitions_per_chain.len())
+            .map(|i| metrics_data.distance_metrics(0, i, cutoff)),
+        metadata.iter(),
+        tool_reference_metrics.into_iter()
+    )
+    .map(|(m, meta, tm)| -> Result<io::Metrics> {
+        Ok(io::Metrics::from((
+            meta.clone(),
+            reference_metrics.clone(),
+            tm,
+            m?,
+        )))
+    })
+    .collect::<Result<Vec<io::Metrics>>>()
 }
 
 #[cfg(test)]
