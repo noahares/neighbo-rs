@@ -24,6 +24,7 @@ pub trait SubstitutionModel {
     fn get_rates(&self) -> &[f64];
     fn get_frequencies(&self) -> &[f64];
     fn get_rate_matrix_dimension(&self) -> usize;
+    fn get_characters(&self) -> &[char];
 }
 
 #[derive(PartialEq, Debug)]
@@ -31,10 +32,12 @@ pub enum Moltype {
     Dna {
         rates: [f64; 6],
         frequencies: [f64; 4],
+        characters: [char; 4],
     },
     Protein {
         rates: Box<[f64; 190]>,
         frequencies: [f64; 20],
+        characters: [char; 20],
     },
 }
 
@@ -57,6 +60,13 @@ impl SubstitutionModel for Moltype {
         match self {
             Moltype::Dna { .. } => 4,
             Moltype::Protein { .. } => 20,
+        }
+    }
+
+    fn get_characters(&self) -> &[char] {
+        match self {
+            Moltype::Dna { characters, .. } => characters,
+            Moltype::Protein { characters, .. } => characters,
         }
     }
 }
@@ -98,6 +108,7 @@ impl FromStr for Moltype {
                 Ok(Moltype::Dna {
                     rates: rates_array,
                     frequencies: frequencies_array,
+                    characters: ['A', 'C', 'G', 'T'],
                 })
             } else if rates.len() == 190 && frequencies.len() == 20 {
                 let mut rates_array = [0.0; 190];
@@ -106,9 +117,15 @@ impl FromStr for Moltype {
                 let mut frequencies_array = [0.0; 20];
                 frequencies_array.copy_from_slice(&frequencies);
 
+                let characters = [
+                    'A', 'R', 'N', 'D', 'C', 'Q', 'E', 'G', 'H', 'I', 'L',
+                    'K', 'M', 'F', 'P', 'S', 'T', 'W', 'Y', 'V',
+                ];
+
                 Ok(Moltype::Protein {
                     rates: Box::new(rates_array),
                     frequencies: frequencies_array,
+                    characters,
                 })
             } else {
                 bail!(
@@ -118,6 +135,10 @@ impl FromStr for Moltype {
             }
         } else {
             info!("No model parameters found, assuming LG");
+            let characters = [
+                'A', 'R', 'N', 'D', 'C', 'Q', 'E', 'G', 'H', 'I', 'L', 'K',
+                'M', 'F', 'P', 'S', 'T', 'W', 'Y', 'V',
+            ];
             Ok(Moltype::Protein {
                 rates: Box::new([
                     0.425093, 0.276818, 0.395144, 2.489084, 0.969894,
@@ -165,6 +186,7 @@ impl FromStr for Moltype {
                     0.099081, 0.064600, 0.022951, 0.042302, 0.044040,
                     0.061197, 0.053287, 0.012066, 0.034155, 0.069147,
                 ],
+                characters,
             })
         }
     }
@@ -578,7 +600,8 @@ mod tests {
             dna_model,
             Moltype::Dna {
                 rates: [5.002025, 5.265654, 3.291279, 1.648017, 8.361876, 1.0],
-                frequencies: [0.294729, 0.253416, 0.175738, 0.276117]
+                frequencies: [0.294729, 0.253416, 0.175738, 0.276117],
+                characters: ['A', 'C', 'G', 'T'],
             }
         )
     }
@@ -593,22 +616,22 @@ mod tests {
             .iter()
             .zip_eq(
                 [
-                    -13.558957999999999,
-                    5.002025,
-                    5.265654,
-                    3.291279,
-                    5.002025,
-                    -15.011918000000001,
-                    1.648017,
-                    8.361876,
-                    5.265654,
-                    1.648017,
-                    -7.913671,
-                    1.0,
-                    3.291279,
-                    8.361876,
-                    1.0,
-                    -12.653155,
+                    -1.068900145278174,
+                    0.3943271488255261,
+                    0.41510994617614405,
+                    0.2594630502765038,
+                    0.3943271488255261,
+                    -1.183442070629914,
+                    0.1299189517897246,
+                    0.6591959700146631,
+                    0.41510994617614405,
+                    0.1299189517897246,
+                    -0.6238624001625842,
+                    0.07883350219671556,
+                    0.2594630502765038,
+                    0.6591959700146631,
+                    0.07883350219671556,
+                    -0.9974925224878824,
                 ]
                 .iter(),
             )
@@ -622,22 +645,22 @@ mod tests {
             4,
             4,
             &[
-                -13.558957999999999,
-                5.002025,
-                5.265654,
-                3.291279,
-                5.002025,
-                -15.011918000000001,
-                1.648017,
-                8.361876,
-                5.265654,
-                1.648017,
-                -7.913671,
-                1.0,
-                3.291279,
-                8.361876,
-                1.0,
-                -12.653155,
+                -1.068900145278174,
+                0.3943271488255261,
+                0.41510994617614405,
+                0.2594630502765038,
+                0.3943271488255261,
+                -1.183442070629914,
+                0.1299189517897246,
+                0.6591959700146631,
+                0.41510994617614405,
+                0.1299189517897246,
+                -0.6238624001625842,
+                0.07883350219671556,
+                0.2594630502765038,
+                0.6591959700146631,
+                0.07883350219671556,
+                -0.9974925224878824,
             ],
         );
         let (u, d) = decomposed_rate_matrix(&rate_matrix);
@@ -669,7 +692,8 @@ mod tests {
                 &msa,
                 &Moltype::Dna {
                     rates: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-                    frequencies: [0.0, 0.0, 0.0, 0.0]
+                    frequencies: [0.0, 0.0, 0.0, 0.0],
+                    characters: ['A', 'C', 'G', 'T'],
                 }
             ),
             vec![
@@ -687,21 +711,33 @@ mod tests {
             4,
             4,
             &[
-                -13.558958, 5.002025, 5.265654, 3.291279, 5.002025,
-                -15.011918, 1.648017, 8.361876, 5.265654, 1.648017, -7.913671,
-                1.0, 3.291279, 8.361876, 1.0, -12.653155,
+                -1.068900145278174,
+                0.3943271488255261,
+                0.41510994617614405,
+                0.2594630502765038,
+                0.3943271488255261,
+                -1.183442070629914,
+                0.1299189517897246,
+                0.6591959700146631,
+                0.41510994617614405,
+                0.1299189517897246,
+                -0.6238624001625842,
+                0.07883350219671556,
+                0.2594630502765038,
+                0.6591959700146631,
+                0.07883350219671556,
+                -0.9974925224878824,
             ],
         );
         let (u, d) = decomposed_rate_matrix(&rate_matrix);
         let p_t = p_t(&u, &d, 0.0);
         assert!(p_t.is_identity(1e-7));
-        dbg!(&p_t);
         let priors = [0.294729, 0.253416, 0.175738, 0.276117];
         let sequence_a = vec![1, 3, 2, 0];
         let sequence_b = vec![1, 3, 2, 0];
         assert_float_absolute_eq!(
             branch_likelihood(&sequence_a, &sequence_b, &priors, &p_t),
-            priors.iter().product::<f64>().ln()
+            priors.iter().map(|p| (2.0 * p).ln()).sum::<f64>()
         );
     }
 }
