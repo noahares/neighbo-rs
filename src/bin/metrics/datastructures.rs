@@ -53,6 +53,7 @@ pub struct DataSet {
     pub moltype: Moltype,
     pub seed: u32,
     pub num_trees: usize,
+    pub difficulty: Option<f64>,
     pub reference_tool: Tool,
     pub tools: Vec<Tool>,
 }
@@ -98,6 +99,7 @@ pub struct Metadata {
     pub moltype: Option<Moltype>,
     pub seed: Option<u32>,
     pub num_trees: Option<usize>,
+    pub difficulty: Option<f64>,
     pub perturbation: Option<f64>,
     pub ratio: Option<f64>,
     pub strategy: Option<String>,
@@ -114,6 +116,7 @@ impl From<(&DataSet, &Tool)> for Metadata {
             moltype: Some(d.moltype),
             seed: Some(d.seed),
             num_trees: Some(d.num_trees),
+            difficulty: d.difficulty,
             perturbation: t.perturbation,
             ratio: t.ratio,
             strategy: t.strategy.clone(),
