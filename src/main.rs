@@ -14,6 +14,7 @@ mod datastructures;
 mod distance_distribution;
 mod io;
 mod nj;
+// mod parsimony;
 
 fn main() -> Result<()> {
     let args = io::Args::parse();
@@ -68,7 +69,8 @@ fn main() -> Result<()> {
             x_0,
             args.num_samples,
             args.burnin,
-        );
+            args.noise,
+        )?;
         if let Some(distance_distribution_output_path) =
             args.plot_distance_distribution.clone()
         {
@@ -79,27 +81,31 @@ fn main() -> Result<()> {
         let noise_distribution = rand_distr::Normal::new(0.0, args.noise)?;
         (0..args.num_trees)
             .map(|i| -> Result<datastructures::PhyloTree> {
-                let distance_matrix = if i == 0 || args.noise_ratio == 0.0 {
-                    sample_matrix.ml_distances()
-                } else if args.ml_with_percentage {
-                    Ok(sample_matrix.ml_distances()?.perturb(
-                        &mut rng,
-                        &noise_distribution,
-                        args.noise_ratio,
-                        args.single_noise,
-                    ))
-                } else {
-                    sample_matrix.sample(
-                        &mut rng,
-                        args.noise_ratio,
-                        args.noise,
-                    )
-                }?;
-                nj::nj(
-                    distance_matrix,
-                    args.strategy,
+                // let distance_matrix = if i == 0 || args.noise_ratio == 0.0 {
+                //     sample_matrix.ml_distances()
+                // } else if args.ml_with_percentage {
+                //     Ok(sample_matrix.ml_distances()?.perturb(
+                //         &mut rng,
+                //         &noise_distribution,
+                //         args.noise_ratio,
+                //         args.single_noise,
+                //     ))
+                // } else {
+                //     sample_matrix.sample(
+                //         &mut rng,
+                //         args.noise_ratio,
+                //     )
+                // }?;
+                // nj::nj(
+                //     distance_matrix,
+                //     args.strategy,
+                //     &mut rng,
+                //     args.percentile,
+                // )
+                nj::resampling_nj(
+                    sample_matrix.clone(),
                     &mut rng,
-                    args.percentile,
+                    args.noise_ratio,
                 )
             })
             .collect::<Result<Vec<datastructures::PhyloTree>>>()?

@@ -3,7 +3,7 @@ use itertools::{izip, Itertools};
 use log::{debug, info};
 use logging_timer::time;
 use plotpy::{Curve, Plot};
-use rand::SeedableRng;
+use rand::{seq::SliceRandom, SeedableRng};
 use rand_chacha::ChaCha8Rng;
 use rand_distr::Distribution;
 use rayon::prelude::*;
@@ -378,95 +378,231 @@ impl MsaData {
     }
 }
 
+pub trait Sample {
+    fn sample<R>(&self, rng: &mut R) -> f64
+    where
+        R: rand::Rng + ?Sized;
+    fn ml_element(&self) -> f64;
+}
+
+#[derive(Clone)]
+pub enum DistanceDistributionSamples {
+    Approximation(f64, rand_distr::Normal<f64>),
+    RealSamples(Vec<f64>),
+    Fixed(f64),
+}
+
+impl Sample for DistanceDistributionSamples {
+    fn sample<R>(&self, rng: &mut R) -> f64
+    where
+        R: rand::Rng + ?Sized,
+    {
+        match self {
+            DistanceDistributionSamples::Approximation(
+                _ml_element,
+                normal,
+            ) => normal.sample(rng),
+            DistanceDistributionSamples::RealSamples(samples) => {
+                *samples.choose(rng).unwrap()
+            }
+            DistanceDistributionSamples::Fixed(sample) => *sample,
+        }
+    }
+
+    fn ml_element(&self) -> f64 {
+        match self {
+            DistanceDistributionSamples::Approximation(
+                ml_element,
+                _normal,
+            ) => *ml_element,
+            DistanceDistributionSamples::RealSamples(samples) => {
+                *samples.first().unwrap()
+            }
+            DistanceDistributionSamples::Fixed(sample) => *sample,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct DistributionSample {
     branch_length: f64,
     likelihood: f64,
 }
 
+#[derive(Clone)]
 pub struct DistanceMatrixSamples {
     labels: Vec<String>,
-    samples: Vec<Vec<DistributionSample>>,
+    samples: Vec<DistanceDistributionSamples>,
+    sample_size: usize,
 }
 
 impl DistanceMatrixSamples {
-    pub fn sample(
+    pub fn new(
+        labels: &[String],
+        samples: Vec<Vec<DistributionSample>>,
+        approximate_with_normal_distribution: bool,
+        stddev_scale: f64,
+    ) -> Result<Self> {
+        let sample_size = samples[0].len();
+        if !approximate_with_normal_distribution {
+            Ok(Self {
+                labels: labels.to_vec(),
+                samples: samples
+                    .into_iter()
+                    .map(|s| {
+                        DistanceDistributionSamples::RealSamples(
+                            s.into_iter()
+                                .map(|v| v.branch_length)
+                                .collect_vec(),
+                        )
+                    })
+                    .collect_vec(),
+                sample_size,
+            })
+        } else {
+            let means: Vec<f64> = samples
+                .iter()
+                .map(|s| {
+                    if !s.is_empty() {
+                        Ok(s.iter()
+                            .map(|sample| sample.branch_length)
+                            .sum::<f64>()
+                            / s.len() as f64)
+                    } else {
+                        bail!("No samples available")
+                    }
+                })
+                .collect::<Result<Vec<f64>>>()?;
+            let stddevs: Vec<f64> = samples
+                .iter()
+                .zip_eq(means.iter())
+                .map(|(s, m)| {
+                    (s.iter()
+                        .map(|v| (m - v.branch_length).powi(2))
+                        .sum::<f64>()
+                        / s.len() as f64)
+                        .sqrt()
+                })
+                .collect();
+            let distributions: Vec<DistanceDistributionSamples> =
+                izip!(samples.iter(), means.iter(), stddevs.iter())
+                    .map(|(s, mean, stddev)| {
+                        Ok(DistanceDistributionSamples::Approximation(
+                            s.first().unwrap().branch_length,
+                            rand_distr::Normal::new(
+                                *mean,
+                                *stddev * stddev_scale,
+                            )?,
+                        ))
+                    })
+                    .collect::<Result<Vec<DistanceDistributionSamples>>>()?;
+            Ok(Self {
+                labels: labels.to_vec(),
+                samples: distributions,
+                sample_size,
+            })
+        }
+    }
+
+    pub fn labels(&self) -> std::slice::Iter<String> {
+        self.labels.iter()
+    }
+
+    pub fn sample<'a, I>(
         &self,
         rng: &mut impl rand::Rng,
         ratio: f64,
-        stddev_scale: f64,
-    ) -> Result<DistanceMatrix> {
-        let means: Vec<f64> = self
+        old_distances: I,
+    ) -> Result<DistanceMatrix>
+    where
+        I: Iterator<Item = &'a f64>,
+    {
+        let distances: Vec<f64> = self
             .samples
             .iter()
-            .map(|s| {
-                if !s.is_empty() {
-                    Ok(s.iter()
-                        .map(|sample| sample.branch_length)
-                        .sum::<f64>()
-                        / s.len() as f64)
-                } else {
-                    bail!("No samples available")
-                }
-            })
-            .collect::<Result<Vec<f64>>>()?;
-        let stddevs: Vec<f64> = self
-            .samples
-            .iter()
-            .zip_eq(means.iter())
-            .map(|(s, m)| {
-                (s.iter().map(|v| (m - v.branch_length).powi(2)).sum::<f64>()
-                    / s.len() as f64)
-                    .sqrt()
-                    * stddev_scale
-            })
-            .collect();
-        let distances: Vec<f64> =
-            izip!(self.samples.iter(), means.iter(), stddevs.iter())
-                .map(|(samples, mean, stddev)| {
-                    Ok(if ratio > rng.gen() {
-                        let d = rand_distr::Normal::new(*mean, *stddev)?;
-                        debug!("Sampling from Normal Distribution with mean: {}, stddev: {}", mean, stddev);
-                        d.sample(rng)
-                    } else {
-                        samples.first().unwrap().branch_length
-                    })
-                })
-                .collect::<Result<Vec<f64>>>()?;
+            .zip(old_distances)
+            .map(|(s, d)| if ratio > rng.gen() { s.sample(rng) } else { *d })
+            .collect::<Vec<f64>>();
         debug!("{:?}", distances);
         Ok(DistanceMatrix::new(self.labels.clone(), distances))
+    }
+
+    pub fn sample_entry(
+        &self,
+        row: usize,
+        col: usize,
+        rng: &mut impl rand::Rng,
+    ) -> f64 {
+        let (i, j) = (row.min(col), row.max(col));
+        let index =
+            DistanceMatrix::index_from_row_and_col_lt(i, j, self.num_taxa());
+        self.samples[index].sample(rng)
+    }
+
+    pub fn get(&self, i: usize, j: usize) -> &DistanceDistributionSamples {
+        debug_assert_ne!(i, j);
+        &self.samples
+            [DistanceMatrix::index_from_row_and_col(i, j, self.num_taxa())]
+    }
+
+    pub fn set(
+        &mut self,
+        row: usize,
+        col: usize,
+        value: DistanceDistributionSamples,
+    ) {
+        let (i, j) = (row.min(col), row.max(col));
+        let index =
+            DistanceMatrix::index_from_row_and_col_lt(i, j, self.num_taxa());
+        self.samples[index] = value
+    }
+
+    pub fn update(
+        &mut self,
+        i: usize,
+        j: usize,
+        k: usize,
+        rng: &mut impl rand::Rng,
+    ) {
+        let d_k = (0..self.sample_size)
+            .map(|_| {
+                (self.sample_entry(i, k, rng) + self.sample_entry(j, k, rng)
+                    - self.sample_entry(i, j, rng))
+                    / 2.
+            })
+            .collect_vec();
+        self.set(i, k, DistanceDistributionSamples::RealSamples(d_k));
     }
 
     pub fn ml_distances(&self) -> Result<DistanceMatrix> {
         let distances: Vec<f64> = self
             .samples
             .iter()
-            .map(|s| {
-                Ok(s.first()
-                    .context("No samples available")
-                    .cloned()?
-                    .branch_length)
-            })
+            .map(|s| Ok(s.ml_element()))
             .collect::<Result<Vec<f64>>>()?;
         debug!("{:?}", distances);
         Ok(DistanceMatrix::new(self.labels.clone(), distances))
     }
 
     pub fn plot_distance_distribution(&self, path: PathBuf) -> Result<()> {
-        let mut plot = Plot::new();
-        for samples in &self.samples {
-            let mut curve = Curve::new();
-            curve.set_line_width(1.0);
-            curve.points_begin();
-            for s in samples[0..80].iter() {
-                curve.points_add(s.branch_length, s.likelihood);
-            }
-            curve.points_end();
-            plot.add(&curve)
-                .grid_and_labels("branch length", "log likelihood");
-        }
-        plot.save(&path).unwrap();
+        // let mut plot = Plot::new();
+        // for samples in &self.samples {
+        //     let mut curve = Curve::new();
+        //     curve.set_line_width(1.0);
+        //     curve.points_begin();
+        //     for s in samples[0..80].iter() {
+        //         curve.points_add(s.branch_length, s.likelihood);
+        //     }
+        //     curve.points_end();
+        //     plot.add(&curve)
+        //         .grid_and_labels("branch length", "log likelihood");
+        // }
+        // plot.save(&path).unwrap();
         Ok(())
+    }
+
+    pub fn num_taxa(&self) -> usize {
+        self.labels.len()
     }
 }
 
@@ -478,7 +614,8 @@ pub fn generate_distance_matrix_samples<D>(
     x_0: f64,
     n_samples: usize,
     burnin: usize,
-) -> DistanceMatrixSamples
+    stddev_scale: f64,
+) -> Result<DistanceMatrixSamples>
 where
     D: rand::distributions::Distribution<f64> + std::marker::Sync,
 {
@@ -504,10 +641,7 @@ where
         })
         .collect();
     debug_assert_eq!(samples.len(), (dim * dim - dim) / 2);
-    DistanceMatrixSamples {
-        labels: msa_data.labels.clone(),
-        samples,
-    }
+    DistanceMatrixSamples::new(&msa_data.labels, samples, true, stddev_scale)
 }
 
 fn normalize_msa(msa: &[String], moltype: &Moltype) -> Vec<Vec<usize>> {
