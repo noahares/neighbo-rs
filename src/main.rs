@@ -28,12 +28,12 @@ fn main() -> Result<()> {
         .filter_level(args.verbosity.log_level_filter())
         .init();
     let mut rng = Xoshiro256PlusPlus::seed_from_u64(args.seed);
-    let trees: Vec<datastructures::PhyloTree> = if let Ok(distance_matrix) =
+    if let Ok(distance_matrix) =
         datastructures::DistanceMatrix::from_file(&args.sequence_file)
     {
         info!("Found distance matrix. Running in randomized-noise mode");
         let distribution = rand_distr::Normal::new(0.0, args.noise)?;
-        (0..args.num_trees)
+        let trees: Vec<datastructures::PhyloTree> = (0..args.num_trees)
             .map(|i| -> Result<datastructures::PhyloTree> {
                 let distance_matrix = if i > 0 {
                     distance_matrix.perturb(
@@ -52,7 +52,11 @@ fn main() -> Result<()> {
                     args.percentile,
                 )
             })
-            .collect::<Result<Vec<datastructures::PhyloTree>>>()?
+            .collect::<Result<Vec<datastructures::PhyloTree>>>()?;
+        let mut output = args.get_output()?;
+        for tree in &trees {
+            writeln!(output, "{}", tree)?;
+        }
     } else if let Ok(msa_data) =
         MsaData::new(&args.sequence_file, &args.model_file)
     {
@@ -78,7 +82,7 @@ fn main() -> Result<()> {
             )?;
         }
         let noise_distribution = rand_distr::Normal::new(0.0, args.noise)?;
-        (0..args.num_trees)
+        let trees = (0..args.num_trees * args.parsimony)
             .map(|i| -> Result<datastructures::PhyloTree> {
                 let distance_matrix = if i == 0 || args.noise_ratio == 0.0 {
                     sample_matrix.ml_distances()
@@ -103,13 +107,59 @@ fn main() -> Result<()> {
                     args.percentile,
                 )
             })
-            .collect::<Result<Vec<datastructures::PhyloTree>>>()?
+            .collect::<Result<Vec<datastructures::PhyloTree>>>()?;
+
+        let mut output = args.get_output()?;
+        if args.parsimony > 1 {
+            let char_map = msa_data.get_char_map();
+            let name_sequence_map = msa_data.label_sequence_map();
+            let sequence_length = msa_data.sequence_length();
+            let parsimony_scores = {
+                let _tmr = timer!(Level::Info; "Compute all Parsimony scores");
+                trees
+                    .iter()
+                    .map(|t| {
+                        parsimony::parsimony_score(
+                            t,
+                            &char_map,
+                            &name_sequence_map,
+                            sequence_length,
+                        )
+                    })
+                    .collect::<Result<Vec<usize>>>()?
+            };
+            debug!("Parsimony Scores: \n{:?}", parsimony_scores);
+            let score_tree_pairs: Vec<(usize, usize)> = parsimony_scores
+                .into_iter()
+                .zip_eq(0..trees.len())
+                .sorted_by(|a, b| a.0.cmp(&b.0))
+                .collect();
+            let trees_to_keep: Vec<usize> = parsimony::filter_trees_by_score(
+                &score_tree_pairs,
+                args.num_trees,
+            );
+            if let Some(path) = args.output {
+                let parsimony_path =
+                    path.with_extension("parsimony_filtered.nwk");
+                let mut parsimony_file =
+                    std::fs::File::create(parsimony_path)?;
+                for i in &trees_to_keep {
+                    writeln!(parsimony_file, "{}", trees[*i])?;
+                }
+                let all_samples_path =
+                    path.with_extension("all_samples_with_scores.nwkx");
+                let mut all_samples_file =
+                    std::fs::File::create(all_samples_path)?;
+                for (s, i) in &score_tree_pairs {
+                    writeln!(all_samples_file, "{} {}", trees[*i], s)?;
+                }
+            }
+        }
+        for tree in &trees[..args.num_trees] {
+            writeln!(output, "{}", tree)?;
+        }
     } else {
         bail!("Input was neither a distance matrix nor a MSA!")
     };
-    let mut output = args.get_output()?;
-    for tree in &trees {
-        writeln!(output, "{}", tree)?;
-    }
     Ok(())
 }

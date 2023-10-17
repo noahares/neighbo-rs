@@ -60,6 +60,9 @@ pub struct Args {
     /// Seed for the noise
     #[arg(short, long, default_value_t = 0)]
     pub seed: u64,
+    /// parsimony filtering factor
+    #[arg(long, default_value_t = 1)]
+    pub parsimony: usize,
     /// Output path
     #[arg(short, long)]
     pub output: Option<PathBuf>,

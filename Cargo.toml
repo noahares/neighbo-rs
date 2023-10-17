@@ -50,3 +50,7 @@ debug = 1
 [[bin]]
 name = "metrics"
 path = "src/bin/metrics/main.rs"
+
+[[bin]]
+name = "parsimony"
+path = "src/bin/parsimony/main.rs"
