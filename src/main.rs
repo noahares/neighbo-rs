@@ -2,18 +2,19 @@
 use anyhow::{bail, Result};
 use clap::Parser;
 use distance_distribution::{generate_distance_matrix_samples, MsaData};
-use log::{info, warn};
+use itertools::Itertools;
+use log::{debug, info, warn};
+use logging_timer::{timer, Level};
 use rand_distr::Distribution;
 use rand_xoshiro::rand_core::SeedableRng;
 use rand_xoshiro::Xoshiro256PlusPlus;
+use std::io::Write;
 
-#[macro_use]
-extern crate assert_float_eq;
-
-mod datastructures;
-mod distance_distribution;
-mod io;
-mod nj;
+use neighbo_rs::datastructures;
+use neighbo_rs::distance_distribution;
+use neighbo_rs::io;
+use neighbo_rs::nj;
+use neighbo_rs::parsimony;
 
 fn main() -> Result<()> {
     let args = io::Args::parse();

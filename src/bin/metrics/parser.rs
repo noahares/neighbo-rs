@@ -119,6 +119,7 @@ impl<'a, 'b> NewickParser<'a, 'b> {
     fn is_inner_bipartition(bipartition: &BitVec) -> bool {
         let n_ones = bipartition.count_ones();
         let n_zeros = bipartition.count_zeros();
+        // TODO: use bitvec::some()? <noahares>
         n_ones > 1 && n_zeros > 1
     }
 }

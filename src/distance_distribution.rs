@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+use bitvec::prelude::*;
 use itertools::{izip, Itertools};
 use log::{debug, info};
 use logging_timer::time;
@@ -220,10 +221,10 @@ impl Moltype {
 #[derive(Debug)]
 pub struct MsaData {
     labels: Vec<String>,
-    msa: Vec<Vec<usize>>,
+    msa: Vec<Vec<u8>>,
     u: DMatrix<f64>,
     d: DMatrix<f64>,
-    priors: Vec<f64>,
+    moltype: Moltype,
     pub average_pairwise_distance: f64,
 }
 
@@ -232,6 +233,37 @@ impl MsaData {
         sequence_path: &PathBuf,
         model_path: &Option<PathBuf>,
     ) -> Result<Self> {
+        // let phylip_file = File::open(sequence_path)?;
+        let (labels, sequences): (Vec<String>, Vec<String>) =
+            Self::parse_phylip_file(sequence_path)?;
+        let mut model_string = String::default();
+        match model_path {
+            Some(p) => {
+                let model_file = File::open(p)?;
+                BufReader::new(model_file).read_line(&mut model_string)?;
+            }
+            None => (),
+        }
+        let moltype: Moltype = model_string.parse()?;
+        let rate_matrix = moltype.to_matrix();
+        let (u, d) = decomposed_rate_matrix(&rate_matrix);
+        let msa = normalize_msa(&sequences, &moltype);
+        let average_pairwise_distance =
+            Self::average_pairwise_distance(&msa, &moltype);
+        info!("Average distance: {}", average_pairwise_distance);
+        Ok(Self {
+            labels,
+            msa,
+            u,
+            d,
+            moltype,
+            average_pairwise_distance,
+        })
+    }
+
+    pub fn parse_phylip_file(
+        sequence_path: &PathBuf,
+    ) -> Result<(Vec<String>, Vec<String>)> {
         let phylip_file = File::open(sequence_path)?;
         let (labels, sequences): (Vec<String>, Vec<String>) = {
             let lines: Vec<String> = BufReader::new(phylip_file)
@@ -268,37 +300,39 @@ impl MsaData {
         };
         assert_eq!(labels.len(), sequences.len());
         assert!(sequences.iter().map(|s| s.len()).all_equal());
-        let mut model_string = String::default();
-        match model_path {
-            Some(p) => {
-                let model_file = File::open(p)?;
-                BufReader::new(model_file).read_line(&mut model_string)?;
-            }
-            None => (),
-        }
-        let moltype: Moltype = model_string.parse()?;
-        let rate_matrix = moltype.to_matrix();
-        let (u, d) = decomposed_rate_matrix(&rate_matrix);
-        let msa = normalize_msa(&sequences, &moltype);
-        let average_pairwise_distance =
-            Self::average_pairwise_distance(&msa, &moltype);
-        info!("Average distance: {}", average_pairwise_distance);
-        Ok(Self {
-            labels,
-            msa,
-            u,
-            d,
-            priors: moltype.get_frequencies().to_vec(),
-            average_pairwise_distance,
-        })
+        Ok((labels, sequences))
     }
 
-    fn average_pairwise_distance(
-        msa: &[Vec<usize>],
-        moltype: &Moltype,
-    ) -> f64 {
+    pub fn label_sequence_map(&self) -> HashMap<&String, &Vec<u8>> {
+        self.labels
+            .iter()
+            .zip_eq(self.msa.iter())
+            .map(|(l, s)| (l, s))
+            .collect::<HashMap<_, _>>()
+    }
+
+    pub fn get_char_map(&self) -> HashMap<u8, BitVec> {
+        let num_chars = self.moltype.get_rate_matrix_dimension() + 1;
+        (0..num_chars as u8)
+            .zip((0..num_chars).map(|i| {
+                let mut bv = bitvec![0; num_chars - 1];
+                if i == num_chars - 1 {
+                    bv.fill(true);
+                } else {
+                    bv.set(i, true);
+                }
+                bv
+            }))
+            .collect::<HashMap<_, _>>()
+    }
+
+    pub fn sequence_length(&self) -> usize {
+        self.msa[0].len()
+    }
+
+    fn average_pairwise_distance(msa: &[Vec<u8>], moltype: &Moltype) -> f64 {
         let num_alignments = msa.len();
-        let gap = moltype.get_rate_matrix_dimension();
+        let gap = moltype.get_rate_matrix_dimension() as u8;
         let indices: Vec<(usize, usize)> = (0..num_alignments - 1)
             .cartesian_product(1..num_alignments)
             .filter(|&(i, j)| i < j)
@@ -355,7 +389,7 @@ impl MsaData {
             let new_likelihood = branch_likelihood(
                 &self.msa[sequences.0],
                 &self.msa[sequences.1],
-                &self.priors,
+                self.moltype.get_frequencies(),
                 &p_t(&self.u, &self.d, proposed_sample),
             );
 
@@ -510,12 +544,12 @@ where
     }
 }
 
-fn normalize_msa(msa: &[String], moltype: &Moltype) -> Vec<Vec<usize>> {
-    let mapping: HashMap<char, usize> = match moltype {
+fn normalize_msa(msa: &[String], moltype: &Moltype) -> Vec<Vec<u8>> {
+    let mapping: HashMap<char, u8> = match moltype {
         Moltype::Dna { .. } => ['A', 'C', 'G', 'T', '-']
             .into_iter()
             .enumerate()
-            .map(|(i, c)| (c, i))
+            .map(|(i, c)| (c, i as u8))
             .collect(),
         Moltype::Protein { .. } => [
             'A', 'R', 'N', 'D', 'C', 'Q', 'E', 'G', 'H', 'I', 'L', 'K', 'M',
@@ -523,7 +557,7 @@ fn normalize_msa(msa: &[String], moltype: &Moltype) -> Vec<Vec<usize>> {
         ]
         .into_iter()
         .enumerate()
-        .map(|(i, c)| (c, i))
+        .map(|(i, c)| (c, i as u8))
         .collect(),
     };
     msa.iter()
@@ -532,12 +566,12 @@ fn normalize_msa(msa: &[String], moltype: &Moltype) -> Vec<Vec<usize>> {
 }
 
 fn branch_likelihood(
-    sequence_a: &[usize],
-    sequence_b: &[usize],
+    sequence_a: &[u8],
+    sequence_b: &[u8],
     priors: &[f64],
     p_t: &DMatrix<f64>,
 ) -> f64 {
-    let dim = priors.len();
+    let dim = priors.len() as u8;
     sequence_a
         .iter()
         .zip_eq(sequence_b.iter())
@@ -548,7 +582,9 @@ fn branch_likelihood(
             } else {
                 // simplified likelihood because only 2 taxa in the "tree" and LG is time
                 // reversable
-                ((priors[a] + priors[b]) * p_t[(a, b)]).ln()
+                ((priors[a as usize] + priors[b as usize])
+                    * p_t[(a as usize, b as usize)])
+                    .ln()
             }
         })
         // log likelihood -> sum

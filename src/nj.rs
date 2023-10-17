@@ -90,7 +90,7 @@ pub enum RandomizationStrategy {
     Deterministic,
 }
 
-#[time("info")]
+#[time("debug")]
 pub fn nj(
     mut distance_matrix: DistanceMatrix,
     strategy: RandomizationStrategy,

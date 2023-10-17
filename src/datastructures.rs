@@ -121,6 +121,7 @@ impl FromStr for DistanceMatrix {
     }
 }
 
+#[derive(Clone)]
 pub struct PhyloTree {
     name: Option<String>,
     children: Vec<(PhyloTree, Option<f64>)>,
@@ -143,6 +144,26 @@ impl PhyloTree {
             None,
             nodes.into_iter().map(|(t, d)| (t, Some(d))).collect_vec(),
         )
+    }
+
+    pub fn name(&self) -> &Option<String> {
+        &self.name
+    }
+
+    pub fn first_child(&self) -> &Self {
+        &self.children[0].0
+    }
+
+    pub fn second_child(&self) -> &Self {
+        &self.children[1].0
+    }
+
+    pub fn third_child(&self) -> Option<&Self> {
+        if self.children.len() > 2 {
+            Some(&self.children[2].0)
+        } else {
+            None
+        }
     }
 
     fn to_string_impl(&self) -> String {
