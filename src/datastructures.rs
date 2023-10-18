@@ -16,7 +16,7 @@ impl DistanceMatrix {
     }
 
     #[inline]
-    fn index_from_row_and_col(i: usize, j: usize, n: usize) -> usize {
+    pub fn index_from_row_and_col(i: usize, j: usize, n: usize) -> usize {
         let (i, j) = (i.min(j), i.max(j));
         (i * n) - (i * (i + 3) / 2) + (j - 1)
     }
@@ -29,6 +29,10 @@ impl DistanceMatrix {
 
     pub fn labels(&self) -> std::slice::Iter<String> {
         self.labels.iter()
+    }
+
+    pub fn distances(&self) -> std::slice::Iter<f64> {
+        self.distances.iter()
     }
 
     #[inline]

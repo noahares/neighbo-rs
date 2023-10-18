@@ -4,7 +4,10 @@ use itertools::Itertools;
 use ordered_float::NotNan;
 use rand::{seq::IteratorRandom, seq::SliceRandom};
 
-use crate::datastructures::{DistanceMatrix, PhyloTree};
+use crate::{
+    datastructures::{DistanceMatrix, PhyloTree},
+    distance_distribution::DistanceMatrixSamples,
+};
 
 pub fn weighted_min_pos<F>(
     active: &[usize],
@@ -19,8 +22,9 @@ where
         .cartesian_product(active.iter())
         .filter(|&(&i, &j)| i < j)
         .collect_vec();
-    let (&i, &j) =
-        active_indices.choose_weighted(rng, |p| q(p).abs()).unwrap();
+    let (&i, &j) = active_indices
+        .choose_weighted(rng, |p| (-q(p)).exp())
+        .unwrap();
     (i, j)
 }
 
@@ -88,6 +92,111 @@ pub enum RandomizationStrategy {
     ThresholdBasedRandomization,
     RandomSampling,
     Deterministic,
+}
+
+#[time("debug")]
+pub fn resampling_nj(
+    mut distance_matrix_samples: DistanceMatrixSamples,
+    rng: &mut impl rand::Rng,
+    ratio: f64,
+) -> Result<PhyloTree> {
+    let n = distance_matrix_samples.num_taxa();
+    let mut active: Vec<usize> = (0..n).collect();
+    let mut trees: Vec<Option<PhyloTree>> = distance_matrix_samples
+        .labels()
+        .map(|name| Some(PhyloTree::new_leaf(name)))
+        .collect();
+    let mut distance_matrix = distance_matrix_samples.ml_distance_matrix();
+    while active.len() > 3 {
+        let sum_d = {
+            let mut sum_d = vec![0.0; n];
+            active.iter().for_each(|i: &usize| {
+                sum_d[*i] = active
+                    .iter()
+                    .filter(|&&k| k != *i)
+                    .map(|&k| distance_matrix.get(*i, k))
+                    .sum()
+            });
+            sum_d
+        };
+
+        let q = |&(&i, &j): &(&usize, &usize)| -> NotNan<f64> {
+            debug_assert!(i < j);
+            unsafe {
+                NotNan::new_unchecked(
+                    (active.len() - 2) as f64 * distance_matrix.get_lt(i, j)
+                        - sum_d[i]
+                        - sum_d[j],
+                )
+            }
+        };
+        let (i, j) = deterministic_min(&active, q);
+        debug_assert!(i < j);
+        let (d_i, d_j) = {
+            let mut d_i = (distance_matrix.get_lt(i, j) / 2.
+                + (sum_d[i] - sum_d[j]) / (2. * (active.len() - 2) as f64))
+                .max(0.0);
+            let mut d_j = distance_matrix.get_lt(i, j) - d_i;
+            if d_j < 0.0 {
+                d_i = (d_i + d_j).max(0.0);
+                d_j = 0.0;
+            }
+            (d_i, d_j)
+        };
+        debug_assert!(d_i >= 0.0 && d_j >= 0.0);
+
+        active.remove(active.iter().position(|&x| x == j).unwrap());
+        distance_matrix_samples.set(
+            i,
+            j,
+            crate::distance_distribution::DistanceDistributionSamples::Fixed(
+                distance_matrix.get_lt(i, j),
+            ),
+        );
+        active.iter().filter(|&&k| k != i).for_each(|&k| {
+            distance_matrix_samples.update(i, j, k, rng);
+        });
+
+        trees[i] = Some(PhyloTree::join(vec![
+            (trees[i].take().unwrap(), d_i),
+            (trees[j].take().unwrap(), d_j),
+        ]));
+
+        distance_matrix = distance_matrix_samples.sample(
+            rng,
+            ratio,
+            distance_matrix.distances(),
+        )
+    }
+
+    // finalize remaining 3 nodes
+    if let [i, j, k] = active[..] {
+        let (d_i, d_j, d_k) = {
+            let mut d_i = ((distance_matrix.get_lt(i, j)
+                + distance_matrix.get_lt(i, k)
+                - distance_matrix.get_lt(j, k))
+                / 2.)
+                .max(0.0);
+            let mut d_j = distance_matrix.get_lt(i, j) - d_i;
+            if d_j < 0.0 {
+                d_i = (d_i + d_j).max(0.0);
+                d_j = 0.0;
+            }
+            let mut d_k = distance_matrix.get_lt(i, k) - d_i;
+            if d_k < 0.0 {
+                d_i = (d_i + d_k).max(0.0);
+                d_k = 0.0;
+            }
+            (d_i, d_j, d_k)
+        };
+        debug_assert!(d_i >= 0.0 && d_j >= 0.0 && d_k >= 0.0);
+        trees[i] = Some(PhyloTree::join(vec![
+            (trees[i].take().unwrap(), d_i),
+            (trees[j].take().unwrap(), d_j),
+            (trees[k].take().unwrap(), d_k),
+        ]))
+    }
+    Ok(trees[0].take().unwrap())
 }
 
 #[time("debug")]

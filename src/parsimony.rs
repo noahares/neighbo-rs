@@ -29,11 +29,14 @@ pub fn parsimony_score(
                     name_sequence_map,
                 )?;
                 let intersection = first_bitvec.bitand(second_bitvec);
-                Ok(first_score + second_score + intersection.not_any() as usize)
+                Ok(first_score
+                    + second_score
+                    + intersection.not_any() as usize)
             } else {
                 Ok(first_score)
             }
-        }).collect::<Result<Vec<usize>>>()?
+        })
+        .collect::<Result<Vec<usize>>>()?
         .iter()
         .sum())
 }

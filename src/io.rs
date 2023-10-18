@@ -54,6 +54,8 @@ pub struct Args {
     /// Strategy for randomizing the neighbor joining steps
     #[arg(short = 'm', long, default_value_t = RandomizationStrategy::Deterministic, value_enum)]
     pub strategy: RandomizationStrategy,
+    /// Use resampling of distances during NJ steps
+    pub nj_resampling: bool,
     /// Percentile for threshold and sample strategies
     #[arg(short, long, default_value_t = 0.1)]
     pub percentile: f64,
