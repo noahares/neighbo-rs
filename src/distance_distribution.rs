@@ -235,7 +235,7 @@ impl MsaData {
     ) -> Result<Self> {
         // let phylip_file = File::open(sequence_path)?;
         let (labels, sequences): (Vec<String>, Vec<String>) =
-            Self::parse_phylip_file(sequence_path)?;
+            Self::parse_fasta_file(sequence_path)?;
         let mut model_string = String::default();
         match model_path {
             Some(p) => {
@@ -261,7 +261,7 @@ impl MsaData {
         })
     }
 
-    pub fn parse_phylip_file(
+    pub fn parse_fasta_file(
         sequence_path: &PathBuf,
     ) -> Result<(Vec<String>, Vec<String>)> {
         let phylip_file = File::open(sequence_path)?;
@@ -723,7 +723,7 @@ fn normalize_msa(msa: &[String], moltype: &Moltype) -> Vec<Vec<u8>> {
         .collect(),
     };
     msa.iter()
-        .map(|sequence| sequence.chars().map(|c| mapping[&c]).collect())
+        .map(|sequence| sequence.chars().map(|c| *mapping.get(&c).unwrap_or_else(|| &mapping[&'-'])).collect())
         .collect()
 }
 

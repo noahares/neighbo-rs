@@ -55,6 +55,7 @@ pub struct Args {
     #[arg(short = 'm', long, default_value_t = RandomizationStrategy::Deterministic, value_enum)]
     pub strategy: RandomizationStrategy,
     /// Use resampling of distances during NJ steps
+    #[arg(long, default_value_t = false)]
     pub nj_resampling: bool,
     /// Percentile for threshold and sample strategies
     #[arg(short, long, default_value_t = 0.1)]
