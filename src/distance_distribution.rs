@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
 use bitvec::prelude::*;
 use itertools::{izip, Itertools};
-use log::{debug, info};
+use log::{debug, info, warn};
 use logging_timer::time;
 use plotpy::{Curve, Plot};
 use rand::{seq::SliceRandom, SeedableRng};
@@ -9,8 +9,14 @@ use rand_chacha::ChaCha8Rng;
 use rand_distr::Distribution;
 use rayon::prelude::*;
 use regex::Regex;
+use serde::{
+    de::Visitor,
+    ser::{SerializeSeq, SerializeTuple},
+    Deserialize, Deserializer, Serialize,
+};
 use std::{
     collections::HashMap,
+    fmt,
     fs::File,
     io::{BufRead, BufReader},
     path::PathBuf,
@@ -232,6 +238,7 @@ impl MsaData {
     pub fn new(
         sequence_path: &PathBuf,
         model_path: &Option<PathBuf>,
+        prepare_for_distance_estimation: bool,
     ) -> Result<Self> {
         // let phylip_file = File::open(sequence_path)?;
         let (labels, sequences): (Vec<String>, Vec<String>) =
@@ -245,20 +252,31 @@ impl MsaData {
             None => (),
         }
         let moltype: Moltype = model_string.parse()?;
-        let rate_matrix = moltype.to_matrix();
-        let (u, d) = decomposed_rate_matrix(&rate_matrix);
         let msa = normalize_msa(&sequences, &moltype);
-        let average_pairwise_distance =
-            Self::average_pairwise_distance(&msa, &moltype);
-        info!("Average distance: {}", average_pairwise_distance);
-        Ok(Self {
-            labels,
-            msa,
-            u,
-            d,
-            moltype,
-            average_pairwise_distance,
-        })
+        if prepare_for_distance_estimation {
+            let average_pairwise_distance =
+                Self::average_pairwise_distance(&msa, &moltype);
+            let rate_matrix = moltype.to_matrix();
+            let (u, d) = decomposed_rate_matrix(&rate_matrix);
+            info!("Average distance: {}", average_pairwise_distance);
+            Ok(Self {
+                labels,
+                msa,
+                u,
+                d,
+                moltype,
+                average_pairwise_distance,
+            })
+        } else {
+            Ok(Self {
+                labels,
+                msa,
+                u: DMatrix::zeros(1, 1),
+                d: DMatrix::zeros(1, 1),
+                moltype,
+                average_pairwise_distance: 0.0,
+            })
+        }
     }
 
     pub fn parse_fasta_file(
@@ -400,6 +418,15 @@ impl MsaData {
                     likelihood: new_likelihood,
                 });
             }
+            if total_num_samples == n_samples * 100 {
+                warn!("Reached {} samples, will duplicate samples to finalize run!", total_num_samples);
+                while samples.len() < n_samples + burnin {
+                    let remainder = n_samples + burnin - samples.len();
+                    let to_copy = remainder.min(samples.len());
+                    samples.extend_from_within(0..to_copy);
+                }
+                break;
+            }
         }
         debug!(
             "Total samples: {}, burnin: {}, taken: {}",
@@ -424,6 +451,88 @@ pub enum DistanceDistributionSamples {
     Approximation(f64, rand_distr::Normal<f64>),
     RealSamples(Vec<f64>),
     Fixed(f64),
+}
+
+impl Serialize for DistanceDistributionSamples {
+    fn serialize<S>(
+        &self,
+        serializer: S,
+    ) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            DistanceDistributionSamples::Approximation(ml_element, norm) => {
+                let mut tup = serializer.serialize_tuple(3)?;
+                tup.serialize_element(ml_element)?;
+                tup.serialize_element(&norm.mean())?;
+                tup.serialize_element(&norm.std_dev())?;
+                tup.end()
+            }
+            DistanceDistributionSamples::RealSamples(samples) => {
+                let mut seq = serializer.serialize_seq(Some(samples.len()))?;
+                for s in samples {
+                    seq.serialize_element(s)?;
+                }
+                seq.end()
+            }
+            DistanceDistributionSamples::Fixed(v) => {
+                serializer.serialize_f64(*v)
+            }
+        }
+    }
+}
+
+struct DistanceDistributionVisitor;
+
+impl<'de> Visitor<'de> for DistanceDistributionVisitor {
+    type Value = DistanceDistributionSamples;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a valid enum representation")
+    }
+
+    fn visit_seq<A>(
+        self,
+        mut seq: A,
+    ) -> Result<DistanceDistributionSamples, A::Error>
+    where
+        A: serde::de::SeqAccess<'de>,
+    {
+        let first = seq.next_element::<f64>()?.unwrap();
+        let second = seq.next_element::<f64>()?.unwrap();
+        let third = seq.next_element::<f64>()?.unwrap();
+        if let Some(fourth) = seq.next_element::<f64>()? {
+            let mut samples = vec![first, second, third, fourth];
+            while let Some(v) = seq.next_element::<f64>()? {
+                samples.push(v);
+            }
+            Ok(DistanceDistributionSamples::RealSamples(samples))
+        } else {
+            Ok(DistanceDistributionSamples::Approximation(
+                first,
+                rand_distr::Normal::new(second, third).unwrap(),
+            ))
+        }
+    }
+
+    fn visit_f64<E>(self, value: f64) -> Result<DistanceDistributionSamples, E>
+    where
+        E: serde::de::Error,
+    {
+        Ok(DistanceDistributionSamples::Fixed(value))
+    }
+}
+
+impl<'de> Deserialize<'de> for DistanceDistributionSamples {
+    fn deserialize<D>(
+        deserializer: D,
+    ) -> Result<DistanceDistributionSamples, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_any(DistanceDistributionVisitor)
+    }
 }
 
 impl Sample for DistanceDistributionSamples {
@@ -463,7 +572,7 @@ pub struct DistributionSample {
     likelihood: f64,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct DistanceMatrixSamples {
     labels: Vec<String>,
     samples: Vec<DistanceDistributionSamples>,
@@ -474,29 +583,13 @@ impl DistanceMatrixSamples {
     pub fn new(
         labels: &[String],
         samples: Vec<Vec<DistributionSample>>,
-        approximate_with_normal_distribution: bool,
-        stddev_scale: f64,
+        stddev_scale: Option<f64>,
     ) -> Result<Self> {
         let sample_size = samples[0].len();
         debug_assert!(samples.iter().all(|s| s
             .windows(2)
             .all(|w| w[1].likelihood <= w[0].likelihood)));
-        if !approximate_with_normal_distribution {
-            Ok(Self {
-                labels: labels.to_vec(),
-                samples: samples
-                    .into_iter()
-                    .map(|s| {
-                        DistanceDistributionSamples::RealSamples(
-                            s.into_iter()
-                                .map(|v| v.branch_length)
-                                .collect_vec(),
-                        )
-                    })
-                    .collect_vec(),
-                sample_size,
-            })
-        } else {
+        if let Some(scale) = stddev_scale {
             let means: Vec<f64> = samples
                 .iter()
                 .map(|s| {
@@ -526,10 +619,7 @@ impl DistanceMatrixSamples {
                     .map(|(s, mean, stddev)| {
                         Ok(DistanceDistributionSamples::Approximation(
                             s.first().unwrap().branch_length,
-                            rand_distr::Normal::new(
-                                *mean,
-                                *stddev * stddev_scale,
-                            )?,
+                            rand_distr::Normal::new(*mean, *stddev * scale)?,
                         ))
                     })
                     .collect::<Result<Vec<DistanceDistributionSamples>>>()?;
@@ -538,7 +628,45 @@ impl DistanceMatrixSamples {
                 samples: distributions,
                 sample_size,
             })
+        } else {
+            Ok(Self {
+                labels: labels.to_vec(),
+                samples: samples
+                    .into_iter()
+                    .map(|s| {
+                        DistanceDistributionSamples::RealSamples(
+                            s.into_iter()
+                                .map(|v| v.branch_length)
+                                .collect_vec(),
+                        )
+                    })
+                    .collect_vec(),
+                sample_size,
+            })
         }
+    }
+
+    pub fn approximate_from_samples(
+        &mut self,
+        stddev_scale: f64,
+    ) -> Result<()> {
+        for sample in self.samples.iter_mut() {
+            if let DistanceDistributionSamples::RealSamples(samples) = sample {
+                let mean: f64 =
+                    samples.iter().sum::<f64>() / samples.len() as f64;
+                let stddev: f64 =
+                    (samples.iter().map(|v| (mean - v).powi(2)).sum::<f64>()
+                        / samples.len() as f64)
+                        .sqrt();
+                *sample = DistanceDistributionSamples::Approximation(
+                    samples[0],
+                    rand_distr::Normal::new(mean, stddev * stddev_scale)?,
+                );
+            } else {
+                warn!("Already approximated or fixed, nothing to do");
+            }
+        }
+        Ok(())
     }
 
     pub fn labels(&self) -> std::slice::Iter<String> {
@@ -668,7 +796,7 @@ pub fn generate_distance_matrix_samples<D>(
     seed: u64,
     n_samples: usize,
     burnin: usize,
-    stddev_scale: f64,
+    stddev_scale: Option<f64>,
     plot_path: &Option<PathBuf>,
 ) -> Result<DistanceMatrixSamples>
 where
@@ -703,7 +831,7 @@ where
             distance_distribution_output_path,
         )?;
     }
-    DistanceMatrixSamples::new(&msa_data.labels, samples, true, stddev_scale)
+    DistanceMatrixSamples::new(&msa_data.labels, samples, stddev_scale)
 }
 
 fn normalize_msa(msa: &[String], moltype: &Moltype) -> Vec<Vec<u8>> {
@@ -723,7 +851,12 @@ fn normalize_msa(msa: &[String], moltype: &Moltype) -> Vec<Vec<u8>> {
         .collect(),
     };
     msa.iter()
-        .map(|sequence| sequence.chars().map(|c| *mapping.get(&c).unwrap_or_else(|| &mapping[&'-'])).collect())
+        .map(|sequence| {
+            sequence
+                .chars()
+                .map(|c| *mapping.get(&c).unwrap_or_else(|| &mapping[&'-']))
+                .collect()
+        })
         .collect()
 }
 

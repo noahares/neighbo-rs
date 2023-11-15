@@ -24,6 +24,9 @@ pub struct Args {
     /// Path to the model file (output of raxml-ng)
     #[arg(short = 'a', long)]
     pub model_file: Option<PathBuf>,
+    /// Path to the precomputed distance distributions (output of distance_estimator)
+    #[arg(long)]
+    pub precomputed_distances: Option<PathBuf>,
     /// Number of trees to generate
     #[arg(short = 't', long, default_value_t = 1)]
     pub num_trees: usize,

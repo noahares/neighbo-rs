@@ -4,9 +4,12 @@ use clap::Parser;
 use distance_distribution::{generate_distance_matrix_samples, MsaData};
 use itertools::Itertools;
 use log::{debug, info, warn};
+use logging_timer::finish;
 use logging_timer::{timer, Level};
+use neighbo_rs::distance_distribution::DistanceMatrixSamples;
 use rand_xoshiro::rand_core::SeedableRng;
 use rand_xoshiro::Xoshiro256PlusPlus;
+use rayon::prelude::*;
 use std::io::Write;
 
 use neighbo_rs::datastructures;
@@ -26,6 +29,7 @@ fn main() -> Result<()> {
     env_logger::Builder::new()
         .filter_level(args.verbosity.log_level_filter())
         .init();
+    let _total_tmr = timer!(Level::Info; "Total Runtime");
     let mut rng = Xoshiro256PlusPlus::seed_from_u64(args.seed);
     if let Ok(distance_matrix) =
         datastructures::DistanceMatrix::from_file(&args.sequence_file)
@@ -56,23 +60,36 @@ fn main() -> Result<()> {
         for tree in &trees {
             writeln!(output, "{}", tree)?;
         }
-    } else if let Ok(msa_data) =
-        MsaData::new(&args.sequence_file, &args.model_file)
-    {
+    } else if let Ok(msa_data) = MsaData::new(
+        &args.sequence_file,
+        &args.model_file,
+        args.precomputed_distances.is_none(),
+    ) {
         info!("Found MSA. Running in distance distribution mode");
-        let scale =
-            msa_data.average_pairwise_distance / args.distance_prior_shape;
-        let distribution =
-            rand_distr::Gamma::new(args.distance_prior_shape, scale)?;
-        let sample_matrix = generate_distance_matrix_samples(
-            &msa_data,
-            &distribution,
-            args.seed,
-            args.num_samples,
-            args.burnin,
-            args.noise,
-            &args.plot_distance_distribution,
-        )?;
+        let sample_matrix = if let Some(ref precomputed_distances_path) =
+            args.precomputed_distances
+        {
+            let sample_str =
+                std::fs::read_to_string(precomputed_distances_path)?;
+            let mut sample_matrix: DistanceMatrixSamples =
+                serde_json::from_str(&sample_str)?;
+            sample_matrix.approximate_from_samples(args.noise)?;
+            sample_matrix
+        } else {
+            let scale =
+                msa_data.average_pairwise_distance / args.distance_prior_shape;
+            let distribution =
+                rand_distr::Gamma::new(args.distance_prior_shape, scale)?;
+            generate_distance_matrix_samples(
+                &msa_data,
+                &distribution,
+                args.seed,
+                args.num_samples,
+                args.burnin,
+                Some(args.noise),
+                &args.plot_distance_distribution,
+            )?
+        };
         let noise_distribution = rand_distr::Normal::new(0.0, args.noise)?;
         let trees = (0..args.num_trees * args.parsimony)
             .map(|i| -> Result<datastructures::PhyloTree> {
@@ -159,5 +176,6 @@ fn main() -> Result<()> {
     } else {
         bail!("Input was neither a distance matrix nor a MSA!")
     };
+    finish!(_total_tmr);
     Ok(())
 }

@@ -54,3 +54,7 @@ path = "src/bin/metrics/main.rs"
 [[bin]]
 name = "parsimony"
 path = "src/bin/parsimony/main.rs"
+
+[[bin]]
+name = "distance_estimator"
+path = "src/bin/distance_estimator/main.rs"
