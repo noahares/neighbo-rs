@@ -10,6 +10,93 @@ use anyhow::{Context, Result};
 use bitvec::prelude::*;
 
 #[time("debug")]
+pub fn parsimony_score_sequential(
+    tree: &PhyloTree,
+    char_map: &HashMap<u8, BitVec>,
+    name_sequence_map: &HashMap<&String, &Vec<u8>>,
+) -> Result<usize> {
+    let (first_bitvecs, first_score) =
+        parsimony_recursion_sequential(tree, char_map, name_sequence_map)?;
+    if let Some(third_root_child) = tree.third_child() {
+        let (second_bitvecs, second_score) = parsimony_recursion_sequential(
+            third_root_child,
+            char_map,
+            name_sequence_map,
+        )?;
+        let result = first_bitvecs
+            .iter()
+            .zip(second_bitvecs.iter())
+            .map(|(l, r)| {
+                let intersection = l.clone().bitand(r);
+                if intersection.not_any() {
+                    1
+                } else {
+                    0
+                }
+            })
+            .sum::<usize>();
+        Ok(first_score + second_score + result)
+    } else {
+        Ok(first_score)
+    }
+}
+
+fn parsimony_recursion_sequential(
+    node: &PhyloTree,
+    char_map: &HashMap<u8, BitVec>,
+    name_sequence_map: &HashMap<&String, &Vec<u8>>,
+) -> Result<(Vec<BitVec>, usize)> {
+    match node.name() {
+        Some(name) => {
+            let sequence = name_sequence_map.get(name).with_context(|| {
+                format!("Unexpected sequence name {}", name)
+            })?;
+            Ok((
+                sequence
+                    .iter()
+                    .map(|&site| {
+                        char_map
+                            .get(&(site))
+                            .with_context(|| {
+                                format!("Unexpected character {}", site)
+                            })
+                            .cloned()
+                    })
+                    .collect::<Result<Vec<BitVec>>>()?,
+                0,
+            ))
+        }
+        None => {
+            let (left_bitvecs, left_score) = parsimony_recursion_sequential(
+                node.first_child(),
+                char_map,
+                name_sequence_map,
+            )?;
+            let (right_bitvecs, right_score) = parsimony_recursion_sequential(
+                node.second_child(),
+                char_map,
+                name_sequence_map,
+            )?;
+            let mut score = left_score + right_score;
+            let results = left_bitvecs
+                .iter()
+                .zip(right_bitvecs.iter())
+                .map(|(l, r)| {
+                    let intersection = l.clone().bitand(r);
+                    if intersection.not_any() {
+                        score += 1;
+                        l.clone().bitor(r)
+                    } else {
+                        intersection
+                    }
+                })
+                .collect();
+            Ok((results, score))
+        }
+    }
+}
+
+#[time("debug")]
 pub fn parsimony_score(
     tree: &PhyloTree,
     char_map: &HashMap<u8, BitVec>,
@@ -108,7 +195,10 @@ mod tests {
     use bitvec::prelude::*;
     use itertools::Itertools;
 
-    use crate::{datastructures::PhyloTree, parsimony::parsimony_score};
+    use crate::{
+        datastructures::PhyloTree,
+        parsimony::{parsimony_score, parsimony_score_sequential},
+    };
 
     #[test]
     fn test_parsimony_score() {
@@ -163,6 +253,11 @@ mod tests {
                 sequence_length
             )
             .unwrap(),
+            5
+        );
+        assert_eq!(
+            parsimony_score_sequential(&tree, &char_map, &name_sequence_map)
+                .unwrap(),
             5
         );
     }

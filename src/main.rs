@@ -128,17 +128,17 @@ fn main() -> Result<()> {
         if args.parsimony > 1 {
             let char_map = msa_data.get_char_map();
             let name_sequence_map = msa_data.label_sequence_map();
-            let sequence_length = msa_data.sequence_length();
+            // let sequence_length = msa_data.sequence_length();
             let parsimony_scores = {
                 let _tmr = timer!(Level::Info; "Compute all Parsimony scores");
                 trees
-                    .iter()
+                    .par_iter()
                     .map(|t| {
-                        parsimony::parsimony_score(
+                        parsimony::parsimony_score_sequential(
                             t,
                             &char_map,
                             &name_sequence_map,
-                            sequence_length,
+                            // sequence_length,
                         )
                     })
                     .collect::<Result<Vec<usize>>>()?
