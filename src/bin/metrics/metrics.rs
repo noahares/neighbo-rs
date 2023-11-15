@@ -59,7 +59,7 @@ impl MetricsData {
         })
     }
 
-    #[time("info")]
+    #[time("debug")]
     pub fn distance_metrics(
         &self,
         chain_index_a: usize,
@@ -449,7 +449,7 @@ pub fn evaluate_dataset(
             })
             .collect()
     } else {
-        vec![None; bipartitions_per_chain.len() - 1]
+        vec![None; bipartitions_per_chain.len()]
     };
 
     let bipartitions_per_chain = reference_distribution_bipartitions
@@ -684,6 +684,75 @@ mod tests {
         assert_float_absolute_eq!(
             metrics_data.asdsf(0, 1).unwrap(),
             0.675116518f64
+        );
+    }
+
+    #[test]
+    fn test_frequency_relations() {
+        let bipartitions = vec![
+            vec![
+                bitvec![0, 0, 1],
+                bitvec![0, 0, 1],
+                bitvec![0, 1, 0],
+                bitvec![0, 1, 0],
+                bitvec![0, 1, 0],
+                bitvec![0, 1, 0],
+                bitvec![0, 1, 0],
+                bitvec![0, 1, 0],
+            ],
+            vec![
+                bitvec![0, 1, 1],
+                bitvec![0, 1, 0],
+                bitvec![0, 1, 0],
+                bitvec![0, 1, 0],
+                bitvec![0, 1, 0],
+                bitvec![0, 1, 0],
+                bitvec![0, 1, 0],
+                bitvec![0, 1, 0],
+            ],
+            vec![
+                bitvec![0, 0, 1],
+                bitvec![0, 0, 1],
+                bitvec![0, 1, 1],
+                bitvec![0, 1, 1],
+                bitvec![0, 1, 1],
+                bitvec![0, 1, 1],
+                bitvec![0, 1, 1],
+                bitvec![0, 1, 1],
+            ],
+            vec![
+                bitvec![0, 0, 1],
+                bitvec![0, 0, 1],
+                bitvec![0, 0, 1],
+                bitvec![0, 0, 1],
+                bitvec![0, 1, 0],
+                bitvec![0, 1, 0],
+                bitvec![0, 1, 0],
+                bitvec![0, 1, 0],
+            ],
+            vec![
+                bitvec![0, 0, 1],
+                bitvec![0, 0, 1],
+                bitvec![0, 0, 1],
+                bitvec![0, 0, 1],
+                bitvec![0, 1, 1],
+                bitvec![0, 1, 1],
+                bitvec![0, 1, 1],
+                bitvec![0, 1, 1],
+            ],
+        ];
+        let metrics_data = MetricsData::new(&bipartitions).unwrap();
+        assert!(
+            metrics_data.asdsf(0, 1).unwrap()
+                < metrics_data.hellinger_distance(0, 1).unwrap(),
+        );
+        assert!(
+            metrics_data.asdsf(0, 2).unwrap()
+                > metrics_data.hellinger_distance(0, 2).unwrap(),
+        );
+        assert!(
+            metrics_data.simple_distance(3, 4).unwrap()
+                < metrics_data.asdsf(3, 4).unwrap(),
         );
     }
 
