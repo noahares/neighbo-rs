@@ -16,6 +16,7 @@ fn main() -> Result<()> {
     let scale = msa_data.average_pairwise_distance / args.distance_prior_shape;
     let distribution =
         rand_distr::Gamma::new(args.distance_prior_shape, scale)?;
+        // rand::distributions::Uniform::new(0.0, 1.5);
     let sample_matrix = generate_distance_matrix_samples(
         &msa_data,
         &distribution,
@@ -25,6 +26,9 @@ fn main() -> Result<()> {
         None,
         &args.plot_distance_distribution,
     )?;
+    if let Some(path) = args.ml_path {
+        sample_matrix.to_phylip_matrix(path)?;
+    }
     let output = std::fs::File::create(args.output)?;
     serde_json::to_writer(output, &sample_matrix)?;
     Ok(())
@@ -57,6 +61,9 @@ pub struct Args {
     /// Output path
     #[arg(short, long)]
     pub output: PathBuf,
+    /// Path to the ml disatnces
+    #[arg(long = "ml-path", long)]
+    pub ml_path: Option<PathBuf>,
     #[command(flatten)]
     pub verbosity: Verbosity,
 }

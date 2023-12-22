@@ -7,6 +7,7 @@ use log::{debug, info, warn};
 use logging_timer::finish;
 use logging_timer::{timer, Level};
 use neighbo_rs::distance_distribution::DistanceMatrixSamples;
+use rand_chacha::ChaCha8Rng;
 use rand_xoshiro::rand_core::SeedableRng;
 use rand_xoshiro::Xoshiro256PlusPlus;
 use rayon::prelude::*;
@@ -30,10 +31,10 @@ fn main() -> Result<()> {
         .filter_level(args.verbosity.log_level_filter())
         .init();
     let _total_tmr = timer!(Level::Info; "Total Runtime");
-    let mut rng = Xoshiro256PlusPlus::seed_from_u64(args.seed);
     if let Ok(distance_matrix) =
         datastructures::DistanceMatrix::from_file(&args.sequence_file)
     {
+        let mut rng = Xoshiro256PlusPlus::seed_from_u64(args.seed);
         info!("Found distance matrix. Running in randomized-noise mode");
         let distribution = rand_distr::Normal::new(0.0, args.noise)?;
         let trees: Vec<datastructures::PhyloTree> = (0..args.num_trees)
@@ -92,7 +93,10 @@ fn main() -> Result<()> {
         };
         let noise_distribution = rand_distr::Normal::new(0.0, args.noise)?;
         let trees = (0..args.num_trees * args.parsimony)
+            .into_par_iter()
             .map(|i| -> Result<datastructures::PhyloTree> {
+                let mut rng = ChaCha8Rng::seed_from_u64(args.seed);
+                rng.set_stream(i as u64);
                 if args.nj_resampling {
                     nj::resampling_nj(
                         sample_matrix.clone(),
